@@ -109,7 +109,9 @@
 
         const LEAD_SOURCES = ["Flyer", "Instagram", "Banner", "Reference", "Walk-in", "Other"];
 
-        const defaultLogo = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'><rect width='200' height='200' rx='30' fill='%230f172a'/><text x='100' y='110' font-family='Arial' font-size='65' font-weight='900' fill='%23f97316' text-anchor='middle'>UVA</text><text x='100' y='145' font-family='Arial' font-size='16' font-weight='normal' fill='%23ffffff' text-anchor='middle' letter-spacing='2'>ACADEMY</text></svg>";
+        // Separated Defaults
+        const defaultAppIcon = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'><rect width='200' height='200' rx='40' fill='%23ea580c'/><text x='100' y='115' font-family='Arial' font-size='70' font-weight='900' fill='%23ffffff' text-anchor='middle'>UVA</text><text x='100' y='150' font-family='Arial' font-size='18' font-weight='bold' fill='%23ffffff' text-anchor='middle' letter-spacing='3'>APP</text></svg>";
+        const defaultFormLogo = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'><rect width='200' height='200' rx='30' fill='%230f172a'/><text x='100' y='110' font-family='Arial' font-size='65' font-weight='900' fill='%23f97316' text-anchor='middle'>UVA</text><text x='100' y='145' font-family='Arial' font-size='16' font-weight='normal' fill='%23ffffff' text-anchor='middle' letter-spacing='2'>ACADEMY</text></svg>";
 
         // --- GLOBAL STATE ---
         const state = {
@@ -117,7 +119,8 @@
             user: null,
             loginError: '',
             activeTab: 'dashboard',
-            logoUrl: defaultLogo,
+            appIconUrl: defaultAppIcon,
+            formLogoUrl: defaultFormLogo,
             studentPhotoUrl: null,
             inquiries: [
                 { id: 'INQ-001', name: 'Rahul Sharma', phone: '9876543210', type: 'Skill', course: 'AI Master Combo', source: 'Instagram', status: 'Follow-Up', date: '2026-05-28' },
@@ -390,11 +393,24 @@
             }
         };
 
-        window.handleLogoUpload = (input) => {
+        // Dedicated Form Logo Upload
+        window.handleFormLogoUpload = (input) => {
             if (input.files && input.files[0]) {
                 const reader = new FileReader();
                 reader.onload = (e) => { 
-                    state.logoUrl = e.target.result; 
+                    state.formLogoUrl = e.target.result; 
+                    render(); 
+                };
+                reader.readAsDataURL(input.files[0]);
+            }
+        };
+
+        // Dedicated App Icon Upload (For PWA)
+        window.handleAppIconUpload = (input) => {
+            if (input.files && input.files[0]) {
+                const reader = new FileReader();
+                reader.onload = (e) => { 
+                    state.appIconUrl = e.target.result; 
                     setupPWA(); // Re-trigger manifest generation to update dynamic icon
                     render(); 
                 };
@@ -506,10 +522,10 @@
         };
 
         function setupPWA() {
-            // Setup iOS Dynamic Apple Touch Icon
+            // Setup iOS Dynamic Apple Touch Icon using the App Icon
             const appleIcon = document.getElementById('apple-icon');
             if (appleIcon) {
-                appleIcon.href = state.logoUrl;
+                appleIcon.href = state.appIconUrl;
             }
 
             const manifest = {
@@ -521,8 +537,8 @@
                 background_color: "#f8fafc",
                 theme_color: "#0f172a",
                 icons: [
-                    { src: state.logoUrl, sizes: "192x192", type: "image/svg+xml", purpose: "any maskable" },
-                    { src: state.logoUrl, sizes: "512x512", type: "image/svg+xml", purpose: "any maskable" }
+                    { src: state.appIconUrl, sizes: "192x192", type: "image/svg+xml", purpose: "any maskable" },
+                    { src: state.appIconUrl, sizes: "512x512", type: "image/svg+xml", purpose: "any maskable" }
                 ]
             };
             
@@ -712,6 +728,13 @@
                 </button>
             ` : '';
 
+            const appIconUploadBtn = `
+                <label class="p-1.5 text-slate-400 hover:text-white transition-colors cursor-pointer" title="Change App Icon">
+                    <i data-lucide="image" class="w-5 h-5"></i>
+                    <input type="file" accept="image/*" onchange="handleAppIconUpload(this)" class="hidden" />
+                </label>
+            `;
+
             return `
             <header class="md:hidden flex items-center justify-between bg-slate-900 text-white px-4 py-3 sticky top-0 z-30 shadow-md print:hidden">
                 <div class="flex items-center space-x-2">
@@ -720,6 +743,7 @@
                 </div>
                 <div class="flex items-center space-x-2">
                     ${installBtn}
+                    ${appIconUploadBtn}
                     <button onclick="handleLogout()" class="p-1.5 text-slate-400 hover:text-white transition-colors" title="Logout">
                         <i data-lucide="log-out" class="w-5 h-5"></i>
                     </button>
@@ -749,13 +773,19 @@
             }`;
 
             const installBtn = state.canInstall ? `
-                <div class="p-4 border-t border-slate-700 animate-fade-in">
-                    <button onclick="installPWA()" class="w-full bg-orange-500 text-white flex items-center justify-center space-x-2 px-4 py-3 rounded-xl hover:bg-orange-600 transition-colors shadow-lg shadow-orange-500/30">
-                        <i data-lucide="download" class="w-5 h-5"></i>
-                        <span class="font-bold tracking-wide uppercase text-sm">Install App</span>
-                    </button>
-                </div>
+                <button onclick="installPWA()" class="w-full bg-orange-500 text-white flex items-center justify-center space-x-2 px-4 py-3 rounded-xl hover:bg-orange-600 transition-colors shadow-lg shadow-orange-500/30 mb-2 animate-fade-in">
+                    <i data-lucide="download" class="w-5 h-5"></i>
+                    <span class="font-bold tracking-wide uppercase text-sm">Install App</span>
+                </button>
             ` : '';
+
+            const appIconUploadBtn = `
+                <label class="w-full text-slate-400 flex items-center justify-center space-x-2 px-4 py-3 rounded-xl hover:bg-slate-800 hover:text-white transition-colors cursor-pointer text-sm mb-2">
+                    <i data-lucide="image" class="w-5 h-5"></i>
+                    <span class="font-bold tracking-wide uppercase">App Icon</span>
+                    <input type="file" accept="image/*" onchange="handleAppIconUpload(this)" class="hidden" />
+                </label>
+            `;
 
             return `
             <aside class="hidden md:flex w-64 bg-slate-900 text-white flex-col print:hidden shadow-xl z-20 flex-shrink-0">
@@ -777,11 +807,12 @@
                         <i data-lucide="check-square" class="w-5 h-5"></i> <span>Attendance</span>
                     </div>
                 </nav>
-                <div class="p-4 border-t border-slate-700 flex flex-col space-y-2 flex-shrink-0">
+                <div class="p-4 border-t border-slate-700 flex flex-col flex-shrink-0">
                     ${installBtn}
-                    <button onclick="handleLogout()" class="w-full text-slate-400 flex items-center justify-center space-x-2 px-4 py-3 rounded-xl hover:bg-slate-800 hover:text-red-400 transition-colors">
+                    ${appIconUploadBtn}
+                    <button onclick="handleLogout()" class="w-full text-slate-400 flex items-center justify-center space-x-2 px-4 py-3 rounded-xl hover:bg-slate-800 hover:text-red-400 transition-colors text-sm">
                         <i data-lucide="log-out" class="w-5 h-5"></i>
-                        <span class="font-bold tracking-wide uppercase text-sm">Secure Logout</span>
+                        <span class="font-bold tracking-wide uppercase">Secure Logout</span>
                     </button>
                 </div>
             </aside>`;
@@ -1426,7 +1457,7 @@
                     <button onclick="closeReceipt()" class="w-full sm:w-auto px-5 py-2.5 bg-white border border-slate-300 rounded-xl hover:bg-slate-50 font-bold shadow-sm transition-colors text-slate-700">← Back</button>
                     <div class="flex space-x-3 w-full sm:w-auto justify-end">
                         <label class="cursor-pointer px-4 py-2.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-xl text-xs md:text-sm font-bold hover:bg-blue-100 transition-colors shadow-sm whitespace-nowrap">
-                            Change Logo<input type="file" accept="image/*" onchange="handleLogoUpload(this)" class="hidden" />
+                            Change Form Logo<input type="file" accept="image/*" onchange="handleFormLogoUpload(this)" class="hidden" />
                         </label>
                         <button onclick="window.print()" class="px-5 py-2.5 bg-orange-500 text-white rounded-xl hover:bg-orange-600 font-bold flex items-center justify-center space-x-2 shadow-sm transition-colors whitespace-nowrap">
                             <i data-lucide="printer" class="w-4 h-4"></i> <span>Print</span>
@@ -1438,7 +1469,7 @@
                     <div class="bg-white p-6 md:p-10 rounded-2xl shadow-xl print:shadow-none print:p-6 border-t-[8px] md:border-t-[12px] border-slate-900 border-x border-b min-w-[700px]">
                         <div class="flex justify-between items-center border-b-[3px] border-slate-800 pb-6 mb-6">
                             <div class="w-24 h-24 md:w-32 md:h-32 flex items-center justify-center overflow-hidden bg-white">
-                                <img src="${state.logoUrl}" alt="UVA Logo" class="w-full h-full object-contain" />
+                                <img src="${state.formLogoUrl}" alt="UVA Logo" class="w-full h-full object-contain" />
                             </div>
                             <div class="flex-1 text-center px-4">
                                 <h1 class="text-3xl md:text-4xl font-extrabold text-slate-900 tracking-tight">UDAAN</h1>
@@ -1546,16 +1577,21 @@
             <div class="p-4 sm:p-8 max-w-5xl mx-auto bg-gray-50 min-h-[100dvh] print:p-0 print:bg-white animate-fade-in">
                 <div class="flex flex-col sm:flex-row justify-between items-center mb-6 print:hidden gap-3">
                     <button onclick="closeAttendanceReport()" class="w-full sm:w-auto px-5 py-2.5 bg-white border border-slate-300 rounded-xl hover:bg-slate-50 font-bold shadow-sm text-slate-700 transition-colors">← Back</button>
-                    <button onclick="window.print()" class="w-full sm:w-auto px-6 py-2.5 bg-orange-500 text-white rounded-xl hover:bg-orange-600 font-bold flex items-center justify-center space-x-2 shadow-sm transition-colors">
-                        <i data-lucide="printer" class="w-4 h-4"></i> <span>Print Report</span>
-                    </button>
+                    <div class="flex space-x-3 w-full sm:w-auto justify-end">
+                        <label class="cursor-pointer px-4 py-2.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-xl text-xs md:text-sm font-bold hover:bg-blue-100 transition-colors shadow-sm whitespace-nowrap">
+                            Change Form Logo<input type="file" accept="image/*" onchange="handleFormLogoUpload(this)" class="hidden" />
+                        </label>
+                        <button onclick="window.print()" class="w-full sm:w-auto px-6 py-2.5 bg-orange-500 text-white rounded-xl hover:bg-orange-600 font-bold flex items-center justify-center space-x-2 shadow-sm transition-colors">
+                            <i data-lucide="printer" class="w-4 h-4"></i> <span>Print Report</span>
+                        </button>
+                    </div>
                 </div>
                 
                 <div class="overflow-x-auto print:overflow-visible">
                     <div class="bg-white p-6 md:p-10 rounded-2xl shadow-xl print:shadow-none print:p-6 border-t-[8px] md:border-t-[12px] border-slate-900 border-x border-b min-w-[700px]">
                         <div class="flex justify-between items-center border-b-[3px] border-slate-800 pb-6 mb-6">
                             <div class="w-20 h-20 md:w-28 md:h-28 flex items-center justify-center overflow-hidden bg-white">
-                                <img src="${state.logoUrl}" alt="UVA Logo" class="w-full h-full object-contain" />
+                                <img src="${state.formLogoUrl}" alt="UVA Logo" class="w-full h-full object-contain" />
                             </div>
                             <div class="flex-1 text-center px-4">
                                 <h1 class="text-2xl md:text-3xl font-extrabold text-slate-900 tracking-tight">UDAAN VIBRANT ACADEMY</h1>
