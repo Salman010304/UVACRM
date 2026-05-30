@@ -1,0 +1,1643 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#0f172a">
+    <title>Udaan Vibrant Academy ERP</title>
+    <link id="manifest-link" rel="manifest">
+    
+    <!-- Firebase SDK (Compat Version for Vanilla JS) -->
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-fade-in {
+            animation: fadeIn 0.3s ease-out forwards;
+        }
+
+        /* --- Attractive Lines Animated Background --- */
+        .bg-mesh {
+            background-color: #020617;
+            background-image: radial-gradient(rgba(249, 115, 22, 0.15) 1px, transparent 1px);
+            background-size: 30px 30px;
+        }
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.65);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+        }
+        .glow-orb {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(100px);
+            opacity: 0.5;
+            animation: floatOrb 12s ease-in-out infinite alternate;
+        }
+        .orb-orange { width: 400px; height: 400px; background: #ea580c; top: -100px; left: -100px; }
+        .orb-purple { width: 500px; height: 500px; background: #7e22ce; bottom: -150px; right: -100px; animation-delay: -6s; }
+        @keyframes floatOrb {
+            0% { transform: translateY(0px) scale(1); }
+            100% { transform: translateY(60px) scale(1.15); }
+        }
+
+        /* Custom scrollbar for webkit to make tables look clean */
+        ::-webkit-scrollbar { height: 6px; width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        
+        @media print {
+            body { background: white !important; }
+            .print\:hidden { display: none !important; }
+            .print\:p-0 { padding: 0 !important; }
+            .print\:shadow-none { box-shadow: none !important; }
+            .print\:overflow-visible { overflow: visible !important; }
+            .print\:bg-white { background-color: white !important; }
+            /* Reset mobile margins for print */
+            main { margin-bottom: 0 !important; }
+        }
+    </style>
+</head>
+<body class="text-slate-800 bg-slate-50 font-sans h-[100dvh] overflow-hidden">
+    <div id="root" class="h-full"></div>
+
+    <script>
+        // --- FIREBASE INITIALIZATION ---
+        const firebaseConfig = {
+            apiKey: "AIzaSyDvwI0ImHdQhfyC1kchvg5APLdrvan6L54",
+            authDomain: "uvacrm-b417f.firebaseapp.com",
+            projectId: "uvacrm-b417f",
+            storageBucket: "uvacrm-b417f.firebasestorage.app",
+            messagingSenderId: "292694368608",
+            appId: "1:292694368608:web:73248adec8a8150764fe05",
+            measurementId: "G-C24RR5VWYV"
+        };
+        firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+
+        // --- DATABASE & RULES ---
+        const SKILL_COURSES = {
+            "AI Master Combo": { duration: "1 Month" },
+            "Prompt Engineering Mastery": { duration: "1 Month" },
+            "AI Content Creation Mastery": { duration: "1 Month" },
+            "AI Productivity & Smart Work": { duration: "1 Month" },
+            "AI Career Skills Program": { duration: "1 Month+" },
+            "Career Starter Pack (Comp+Eng+Excel)": { duration: "3 Months" },
+            "Creative Designing Course": { duration: "2 Months" },
+            "Advanced Excel Mastery": { duration: "2 Months" },
+            "Accounting & Tally Prime": { duration: "2 Months" },
+            "Smart Computer Skills": { duration: "2 Months" },
+            "English Communication Mastery": { duration: "2 Months" },
+            "Presentation Skills Mastery": { duration: "2 Months" }
+        };
+
+        const TUITION_CLASSES = [
+            "STD 9", "STD 10", "STD 11 Commerce", "STD 12 Commerce"
+        ];
+
+        const LEAD_SOURCES = ["Flyer", "Instagram", "Banner", "Reference", "Walk-in", "Other"];
+
+        const defaultLogo = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'><rect width='200' height='200' rx='30' fill='%230f172a'/><text x='100' y='110' font-family='Arial' font-size='65' font-weight='900' fill='%23f97316' text-anchor='middle'>UVA</text><text x='100' y='145' font-family='Arial' font-size='16' font-weight='normal' fill='%23ffffff' text-anchor='middle' letter-spacing='2'>ACADEMY</text></svg>";
+
+        // --- GLOBAL STATE ---
+        const state = {
+            isAuthLoading: true,
+            user: null,
+            loginError: '',
+            activeTab: 'dashboard',
+            logoUrl: defaultLogo,
+            studentPhotoUrl: null,
+            inquiries: [
+                { id: 'INQ-001', name: 'Rahul Sharma', phone: '9876543210', type: 'Skill', course: 'AI Master Combo', source: 'Instagram', status: 'Follow-Up', date: '2026-05-28' },
+                { id: 'INQ-002', name: 'Priya Patel', phone: '8765432109', type: 'Tuition', std: 'STD 11 Commerce', board: 'GSEB', medium: 'English', source: 'Flyer', status: 'New', date: '2026-05-28' },
+                { id: 'INQ-003', name: 'Rohan Mehta', phone: '9988776655', type: 'Skill', course: 'Advanced Excel Mastery', source: 'Banner', status: 'Demo', date: '2026-05-29' }
+            ],
+            students: [
+                { 
+                    id: 'UVA-001', name: 'Amit Kumar', phone: '9988776655', type: 'Skill', course: 'Creative Designing Course', date: '2026-05-25',
+                    dob: '15/08/2005', gender: 'Male', bloodGroup: 'O+', address: '123, Sunrise Apartments, CG Road, Ahmedabad', batchTiming: 'Evening (4 PM - 6 PM)', parentName: 'Rajesh Kumar', parentPhone: '9988776600', parentOccupation: 'Business Owner', parentEmail: 'rajesh@email.com', freeOffer: 'Spoken English (Free)'
+                },
+                { 
+                    id: 'UVA-002', name: 'Sneha Desai', phone: '8877665544', type: 'Tuition', std: 'STD 12 Commerce', board: 'GSEB', medium: 'Gujarati', date: '2026-05-26',
+                    dob: '22/11/2007', gender: 'Female', bloodGroup: 'B+', address: '45, Gokuldham Society, Paldi, Ahmedabad', batchTiming: 'Morning (8 AM - 12 PM)', parentName: 'Sanjay Desai', parentPhone: '8877665500', parentOccupation: 'Engineer', parentEmail: 'sanjay@email.com', freeOffer: 'None'
+                }
+            ],
+            showNewInquiryForm: false,
+            newInquiryData: { name: '', phone: '', type: 'Skill', course: '', std: '', board: '', medium: '', source: 'Flyer', inquiryDate: new Date().toISOString().split('T')[0] },
+            enrollingLead: null,
+            receiptData: null,
+            attendanceReportData: null,
+            waModalConfig: null,
+            attFilterCategory: 'All',
+            attSelectedBatch: '',
+            attDate: new Date().toISOString().split('T')[0],
+            attReportMonth: new Date().toISOString().slice(0, 7),
+            attState: {},
+            admSearchQuery: '',
+            admProgramFilter: 'All',
+            admCourseFilter: 'All',
+            admOfferFilter: 'All',
+            canInstall: false,
+            editingInquiryId: null,
+            editingStudentData: null
+        };
+
+        // --- AUTH STATE LISTENER ---
+        auth.onAuthStateChanged(user => {
+            state.isAuthLoading = false;
+            state.user = user;
+            render();
+        });
+
+        // --- RENDER ENGINE ---
+        function render() {
+            document.getElementById('root').innerHTML = AppTemplate();
+            lucide.createIcons();
+            // Scroll to top on mobile tab switch
+            const mainContent = document.getElementById('main-scroll-area');
+            if (mainContent) mainContent.scrollTop = 0;
+        }
+
+        // --- AUTH ACTIONS ---
+        window.handleLogin = (e) => {
+            e.preventDefault();
+            const fd = new FormData(e.target);
+            const email = fd.get('email');
+            const password = fd.get('password');
+            state.loginError = '';
+            render(); 
+
+            auth.signInWithEmailAndPassword(email, password)
+                .catch(error => {
+                    state.loginError = error.message;
+                    render();
+                });
+        };
+
+        window.bypassLogin = () => {
+            state.user = { email: 'admin@uva.com (Bypassed)', uid: 'bypassed_user' };
+            render();
+        };
+
+        window.handleLogout = () => {
+            if(state.user.uid === 'bypassed_user') {
+                state.user = null;
+                render();
+            } else {
+                auth.signOut();
+            }
+        };
+
+        // --- GLOBAL ACTIONS ---
+        window.switchTab = (tab) => {
+            state.activeTab = tab;
+            state.receiptData = null;
+            state.attendanceReportData = null;
+            render();
+        };
+
+        window.openWhatsApp = (phone, type, name, courseName) => {
+            let message = "";
+            if (type === 'welcome_inquiry') {
+                message = `Hello ${name},\n\nWelcome to *Udaan Vibrant Academy (UVA)*! 🚀\nThank you for your inquiry regarding our ${courseName} course. Where learning takes flight!\n\nLet us know when you'd like to schedule a visit.`;
+            } else if (type === 'followup_inquiry') {
+                message = `Hello ${name},\n\nWe noticed your interest in the *${courseName}* at Udaan Vibrant Academy! 🌟\n\nSeats are filling up fast for our upcoming batch. Do you have any questions?\n\nLet's build your future together! 🚀`;
+            } else if (type === 'absent_alert') {
+                message = `Dear Parent/Student,\n\nNotice from UVA: ${name} was marked ABSENT today for the ${courseName} batch. Regular attendance is crucial for success!\n\nRegards,\nUdaan Vibrant Academy`;
+            }
+            state.waModalConfig = { phone, message };
+            render();
+        };
+
+        window.closeWhatsApp = () => { state.waModalConfig = null; render(); };
+        window.updateWAMessage = (val) => { state.waModalConfig.message = val; };
+        window.updateWAPhone = (val) => { state.waModalConfig.phone = val; };
+        
+        window.sendWhatsApp = (e) => {
+            e.preventDefault();
+            if (!state.waModalConfig) return;
+            const encodedMessage = encodeURIComponent(state.waModalConfig.message);
+            const whatsappUrl = `https://wa.me/91${state.waModalConfig.phone}?text=${encodedMessage}`;
+            window.open(whatsappUrl, '_blank');
+            window.closeWhatsApp();
+        };
+
+        // --- INQUIRY ACTIONS ---
+        window.toggleInquiryForm = () => {
+            state.showNewInquiryForm = !state.showNewInquiryForm;
+            if (!state.showNewInquiryForm) {
+                state.editingInquiryId = null;
+                state.newInquiryData = { name: '', phone: '', type: 'Skill', course: '', std: '', board: '', medium: '', source: 'Flyer', inquiryDate: new Date().toISOString().split('T')[0] };
+            }
+            render();
+        };
+
+        window.updateNewInquiryData = (key, val) => {
+            state.newInquiryData[key] = val;
+            if(key === 'type') render(); // Re-render for dynamic fields
+        };
+
+        window.saveInquiry = (e) => {
+            e.preventDefault();
+            if (state.editingInquiryId) {
+                const index = state.inquiries.findIndex(i => i.id === state.editingInquiryId);
+                if (index !== -1) {
+                    state.inquiries[index] = { ...state.inquiries[index], ...state.newInquiryData, date: state.newInquiryData.inquiryDate };
+                }
+                state.editingInquiryId = null;
+            } else {
+                state.inquiries.push({
+                    ...state.newInquiryData,
+                    id: `INQ-${Math.floor(Math.random() * 1000)}`,
+                    status: 'New',
+                    date: state.newInquiryData.inquiryDate || new Date().toISOString().split('T')[0]
+                });
+            }
+            state.showNewInquiryForm = false;
+            state.newInquiryData = { name: '', phone: '', type: 'Skill', course: '', std: '', board: '', medium: '', source: 'Flyer', inquiryDate: new Date().toISOString().split('T')[0] };
+            render();
+        };
+
+        window.editInquiry = (id) => {
+            const inq = state.inquiries.find(i => i.id === id);
+            if (inq) {
+                state.newInquiryData = { ...inq, inquiryDate: inq.date };
+                state.editingInquiryId = id;
+                state.showNewInquiryForm = true;
+                render();
+            }
+        };
+
+        window.deleteInquiry = (id) => {
+            if (confirm("Are you sure you want to delete this inquiry?")) {
+                state.inquiries = state.inquiries.filter(i => i.id !== id);
+                render();
+            }
+        };
+
+        window.updateInquiryStatus = (id, val) => {
+            const inq = state.inquiries.find(i => i.id === id);
+            if(inq) inq.status = val;
+            render();
+        };
+
+        window.openEnrollModal = (id) => {
+            state.enrollingLead = state.inquiries.find(i => i.id === id);
+            render();
+        };
+
+        window.closeEnrollModal = () => {
+            state.enrollingLead = null;
+            render();
+        };
+
+        window.confirmEnroll = (e) => {
+            e.preventDefault();
+            const fd = new FormData(e.target);
+            const newStudent = {
+                id: `UVA-${Math.floor(1000 + Math.random() * 9000)}`,
+                name: state.enrollingLead.name,
+                phone: state.enrollingLead.phone,
+                type: state.enrollingLead.type,
+                course: state.enrollingLead.course,
+                std: state.enrollingLead.std,
+                board: state.enrollingLead.board,
+                medium: state.enrollingLead.medium,
+                date: fd.get('joiningDate') || new Date().toISOString().split('T')[0],
+                dob: fd.get('dob') || 'Not Provided',
+                gender: fd.get('gender') || 'Not Specified',
+                bloodGroup: fd.get('bloodGroup') || '-',
+                address: fd.get('address') || 'Not Provided',
+                batchTiming: fd.get('batchTiming') || 'To be assigned',
+                parentName: fd.get('parentName') || 'Not Provided',
+                parentPhone: fd.get('parentPhone') || '-',
+                parentOccupation: fd.get('parentOccupation') || '-',
+                parentEmail: fd.get('parentEmail') || '-',
+                freeOffer: fd.get('freeOffer') || 'None'
+            };
+            
+            state.students.push(newStudent);
+            const inq = state.inquiries.find(i => i.id === state.enrollingLead.id);
+            if(inq) inq.status = 'Enrolled';
+            
+            const name = state.enrollingLead.name;
+            state.enrollingLead = null;
+            render();
+            alert(`${name} successfully enrolled! Check Admissions tab to view or print form.`);
+        };
+
+        // --- ADMISSION ACTIONS ---
+        window.openReceipt = (id) => {
+            state.studentPhotoUrl = null;
+            state.receiptData = state.students.find(s => s.id === id);
+            render();
+        };
+        window.closeReceipt = () => { state.receiptData = null; render(); };
+
+        window.openEditStudentModal = (id) => {
+            state.editingStudentData = { ...state.students.find(s => s.id === id) };
+            render();
+        };
+
+        window.closeEditStudentModal = () => {
+            state.editingStudentData = null;
+            render();
+        };
+
+        window.confirmEditStudent = (e) => {
+            e.preventDefault();
+            const fd = new FormData(e.target);
+            const index = state.students.findIndex(s => s.id === state.editingStudentData.id);
+            if (index !== -1) {
+                state.students[index] = {
+                    ...state.students[index],
+                    name: fd.get('name') || state.students[index].name,
+                    phone: fd.get('phone') || state.students[index].phone,
+                    date: fd.get('joiningDate') || state.students[index].date,
+                    dob: fd.get('dob') || state.students[index].dob,
+                    gender: fd.get('gender') || state.students[index].gender,
+                    bloodGroup: fd.get('bloodGroup') || state.students[index].bloodGroup,
+                    batchTiming: fd.get('batchTiming') || state.students[index].batchTiming,
+                    freeOffer: fd.get('freeOffer') || state.students[index].freeOffer,
+                    address: fd.get('address') || state.students[index].address,
+                    parentName: fd.get('parentName') || state.students[index].parentName,
+                    parentPhone: fd.get('parentPhone') || state.students[index].parentPhone,
+                    parentOccupation: fd.get('parentOccupation') || state.students[index].parentOccupation,
+                    parentEmail: fd.get('parentEmail') || state.students[index].parentEmail,
+                };
+            }
+            state.editingStudentData = null;
+            render();
+            alert('Student details updated successfully!');
+        };
+
+        window.deleteStudent = (id) => {
+            if (confirm("Are you sure you want to completely delete this student record? This action cannot be undone.")) {
+                state.students = state.students.filter(s => s.id !== id);
+                render();
+            }
+        };
+
+        window.handleLogoUpload = (input) => {
+            if (input.files && input.files[0]) {
+                const reader = new FileReader();
+                reader.onload = (e) => { state.logoUrl = e.target.result; render(); };
+                reader.readAsDataURL(input.files[0]);
+            }
+        };
+
+        window.handlePhotoUpload = (input) => {
+            if (input.files && input.files[0]) {
+                const reader = new FileReader();
+                reader.onload = (e) => { state.studentPhotoUrl = e.target.result; render(); };
+                reader.readAsDataURL(input.files[0]);
+            }
+        };
+
+        // --- ATTENDANCE ACTIONS ---
+        window.resetAttState = (studentsToReset) => {
+            state.attState = {};
+            studentsToReset.forEach(s => {
+                state.attState[s.id] = { status: 'Present', reason: '' };
+            });
+        };
+
+        window.updateAttFilter = (val) => {
+            state.attFilterCategory = val;
+            state.attSelectedBatch = '';
+            render();
+        };
+
+        window.updateAttBatch = (val) => {
+            state.attSelectedBatch = val;
+            const currentStudents = getFilteredStudents();
+            window.resetAttState(currentStudents);
+            render();
+        };
+
+        window.updateAttDate = (val) => {
+            state.attDate = val;
+            window.resetAttState(getFilteredStudents());
+            render();
+        };
+
+        window.updateAttMonth = (val) => {
+            state.attReportMonth = val;
+            render();
+        };
+
+        window.toggleAttendance = (id, status) => {
+            if (!state.attState[id]) state.attState[id] = { status: 'Present', reason: '' };
+            state.attState[id].status = status;
+            render();
+        };
+
+        window.updateAttReason = (id, val) => {
+            if (state.attState[id]) state.attState[id].reason = val;
+        };
+
+        window.clearAttendance = () => {
+            if (confirm("Are you sure you want to clear/delete the attendance marks for this batch?")) {
+                const currentStudents = getFilteredStudents();
+                currentStudents.forEach(s => {
+                    delete state.attState[s.id];
+                });
+                render();
+            }
+        };
+
+        window.notifyAbsentees = () => {
+            const filtered = getFilteredStudents();
+            const absentees = filtered.filter(s => state.attState[s.id]?.status === 'Absent');
+            if(absentees.length === 0) {
+                alert("No absentees to notify!"); return;
+            }
+            window.openWhatsApp(absentees[0].phone, 'absent_alert', absentees[0].name, state.attSelectedBatch);
+        };
+
+        window.openAttendanceReport = () => {
+            state.attendanceReportData = {
+                batch: state.attSelectedBatch,
+                students: getFilteredStudents(),
+                month: state.attReportMonth,
+                category: state.attFilterCategory === 'Skill' ? 'Professional & AI Skills' : state.attFilterCategory === 'Tuition' ? 'Academic Tuition' : 'General Program',
+                state: state.attState,
+                date: new Date(state.attDate).toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
+            };
+            render();
+        };
+        window.closeAttendanceReport = () => { state.attendanceReportData = null; render(); };
+
+        // --- PWA INSTALL ACTIONS ---
+        let deferredPrompt;
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault(); 
+            deferredPrompt = e; 
+            state.canInstall = true; 
+            render();
+        });
+
+        window.installPWA = async () => {
+            if (deferredPrompt) {
+                deferredPrompt.prompt();
+                const { outcome } = await deferredPrompt.userChoice;
+                if (outcome === 'accepted') {
+                    state.canInstall = false;
+                }
+                deferredPrompt = null;
+                render();
+            }
+        };
+
+        function setupPWA() {
+            const manifest = {
+                name: "UVA ERP",
+                short_name: "UVA ERP",
+                description: "Udaan Vibrant Academy ERP",
+                start_url: location.href,
+                display: "standalone",
+                background_color: "#f8fafc",
+                theme_color: "#0f172a",
+                icons: [
+                    { src: defaultLogo, sizes: "192x192", type: "image/svg+xml", purpose: "any maskable" },
+                    { src: defaultLogo, sizes: "512x512", type: "image/svg+xml", purpose: "any maskable" }
+                ]
+            };
+            
+            const manifestBlob = new Blob([JSON.stringify(manifest)], {type: 'application/manifest+json'});
+            document.getElementById('manifest-link').href = URL.createObjectURL(manifestBlob);
+
+            const swCode = `
+                self.addEventListener('install', (e) => self.skipWaiting());
+                self.addEventListener('activate', (e) => e.waitUntil(clients.claim()));
+                self.addEventListener('fetch', (e) => {
+                    e.respondWith(fetch(e.request).catch(() => new Response('Offline Mode Active. Please connect to internet.')));
+                });
+            `;
+            const swBlob = new Blob([swCode], {type: 'text/javascript'});
+            
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.register(URL.createObjectURL(swBlob))
+                    .then(() => console.log('PWA Service Worker Ready'))
+                    .catch(err => console.log('SW Registration failed: ', err));
+            }
+        }
+
+        // --- ADMISSIONS FILTER ACTIONS ---
+        window.updateAdmSearch = (val) => { state.admSearchQuery = val; render(); };
+        window.updateAdmProgramFilter = (val) => { state.admProgramFilter = val; state.admCourseFilter = 'All'; render(); };
+        window.updateAdmCourseFilter = (val) => { state.admCourseFilter = val; render(); };
+        window.updateAdmOfferFilter = (val) => { state.admOfferFilter = val; render(); };
+
+        function getBatches() {
+            const b = state.students
+                .filter(s => state.attFilterCategory === 'All' || s.type === state.attFilterCategory)
+                .map(s => s.type === 'Skill' ? s.course : `${s.std} ${s.board} ${s.medium}`);
+            return [...new Set(b)];
+        }
+
+        function getFilteredStudents() {
+            if (!state.attSelectedBatch) return [];
+            return state.students.filter(s => {
+                const batchName = s.type === 'Skill' ? s.course : `${s.std} ${s.board} ${s.medium}`;
+                return batchName === state.attSelectedBatch && (state.attFilterCategory === 'All' || s.type === state.attFilterCategory);
+            });
+        }
+
+        // --- TEMPLATES ---
+        
+        function AppTemplate() {
+            if (state.isAuthLoading) {
+                return `
+                <div class="flex h-[100dvh] w-full items-center justify-center bg-slate-900 text-white">
+                    <div class="animate-pulse flex flex-col items-center">
+                        <div class="w-16 h-16 border-4 border-orange-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+                        <p class="font-bold tracking-widest text-slate-400">CONNECTING SECURELY...</p>
+                    </div>
+                </div>`;
+            }
+
+            if (!state.user) {
+                return LoginTemplate();
+            }
+
+            return `
+            <div class="flex flex-col md:flex-row h-[100dvh] w-full relative bg-slate-50">
+                ${MobileHeaderTemplate()}
+                ${SidebarTemplate()}
+                <main id="main-scroll-area" class="flex-1 overflow-y-auto print:overflow-visible relative pb-24 md:pb-0">
+                    ${MainContentTemplate()}
+                </main>
+                ${MobileNavTemplate()}
+                ${WAModalTemplate()}
+            </div>`;
+        }
+
+        // --- ATTRACTIVE LOGIN TEMPLATE ---
+        function LoginTemplate() {
+            const errorHTML = state.loginError ? `
+                <div class="bg-red-500/10 border border-red-500/50 text-red-400 p-3 rounded-xl text-sm mb-6 flex items-start animate-fade-in">
+                    <i data-lucide="alert-circle" class="w-5 h-5 mr-2 flex-shrink-0 mt-0.5"></i>
+                    <span>${state.loginError}</span>
+                </div>
+            ` : '';
+
+            return `
+            <div class="bg-mesh min-h-[100dvh] w-full flex items-center justify-center p-4 sm:p-6 lg:p-8 relative overflow-hidden">
+                <!-- Decorative Orbs -->
+                <div class="glow-orb orb-orange"></div>
+                <div class="glow-orb orb-purple"></div>
+                
+                <div class="relative z-10 w-full max-w-5xl flex flex-col md:flex-row rounded-3xl md:rounded-[2.5rem] overflow-hidden shadow-[0_0_50px_rgba(0,0,0,0.5)] border border-slate-700/50 animate-fade-in max-h-[95dvh] md:max-h-[85vh]">
+                    
+                    <!-- Branding Side (Left - Hidden on Mobile) -->
+                    <div class="hidden md:flex md:w-5/12 bg-gradient-to-br from-slate-900 to-slate-800 p-10 flex-col justify-between relative overflow-y-auto">
+                        <div class="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMCIgaGVpZ2h0PSIyMCI+PGNpcmNsZSBjeD0iMiIgY3k9IjIiIHI9IjIiIGZpbGw9InJnYmEoMjU1LDI1NSwyNTUsMC4wNSkiLz48L3N2Zz4=')] opacity-50"></div>
+                        
+                        <div class="relative z-10">
+                            <div class="w-16 h-16 bg-gradient-to-br from-orange-400 to-orange-600 rounded-2xl flex items-center justify-center font-extrabold text-white text-2xl shadow-lg shadow-orange-500/30 mb-6">
+                                UVA
+                            </div>
+                            <h2 class="text-3xl font-extrabold text-white tracking-tight mb-2">Udaan Vibrant Academy</h2>
+                            <p class="text-orange-400 font-bold tracking-widest text-sm uppercase">ERP & CRM System</p>
+                        </div>
+                        
+                        <div class="relative z-10 space-y-6 mt-12">
+                            <div class="flex items-center space-x-4 text-slate-300">
+                                <div class="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center border border-slate-700"><i data-lucide="users" class="w-5 h-5 text-orange-400"></i></div>
+                                <div><p class="font-bold text-white text-sm">Smart CRM</p><p class="text-xs">Manage inquiries effortlessly</p></div>
+                            </div>
+                            <div class="flex items-center space-x-4 text-slate-300">
+                                <div class="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center border border-slate-700"><i data-lucide="book-open" class="w-5 h-5 text-purple-400"></i></div>
+                                <div><p class="font-bold text-white text-sm">Admissions</p><p class="text-xs">1-click enroll & PDF generation</p></div>
+                            </div>
+                            <div class="flex items-center space-x-4 text-slate-300">
+                                <div class="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center border border-slate-700"><i data-lucide="check-square" class="w-5 h-5 text-green-400"></i></div>
+                                <div><p class="font-bold text-white text-sm">Attendance</p><p class="text-xs">Automated tracking & alerts</p></div>
+                            </div>
+                        </div>
+                        
+                        <div class="relative z-10 mt-12 text-xs text-slate-500 font-medium">
+                            &copy; ${new Date().getFullYear()} Udaan Vibrant Academy.
+                        </div>
+                    </div>
+
+                    <!-- Login Form Side (Right) -->
+                    <div class="w-full md:w-7/12 glass-panel p-6 sm:p-8 md:p-12 flex flex-col justify-center overflow-y-auto border-t md:border-t-0 md:border-l border-slate-700/50">
+                        <div class="md:hidden text-center mb-8">
+                            <div class="w-16 h-16 bg-gradient-to-br from-orange-400 to-orange-600 rounded-2xl mx-auto flex items-center justify-center font-extrabold text-white text-2xl shadow-lg shadow-orange-500/30 mb-4">
+                                UVA
+                            </div>
+                            <h2 class="text-2xl font-extrabold text-white tracking-tight">Welcome Back</h2>
+                            <p class="text-slate-400 text-sm mt-1">Log in to manage your academy.</p>
+                        </div>
+
+                        <div class="hidden md:block mb-8">
+                            <h2 class="text-3xl font-extrabold text-white tracking-tight">Admin Login</h2>
+                            <p class="text-slate-400 font-medium mt-2">Secure access to your dashboard.</p>
+                        </div>
+                        
+                        ${errorHTML}
+
+                        <form onsubmit="handleLogin(event)" class="space-y-4 md:space-y-5">
+                            <div class="space-y-1.5">
+                                <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider">Email Address</label>
+                                <div class="relative group">
+                                    <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-500 group-focus-within:text-orange-500 transition-colors">
+                                        <i data-lucide="mail" class="w-5 h-5"></i>
+                                    </div>
+                                    <input type="email" name="email" required placeholder="admin@udaan.com" class="w-full pl-12 pr-4 py-3.5 bg-slate-900/50 border border-slate-700 rounded-xl text-white placeholder-slate-600 focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500 transition-all font-medium" />
+                                </div>
+                            </div>
+                            <div class="space-y-1.5">
+                                <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider flex justify-between">
+                                    <span>Password</span>
+                                    <a href="#" class="text-orange-500 hover:text-orange-400 capitalize transition-colors">Forgot?</a>
+                                </label>
+                                <div class="relative group">
+                                    <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-500 group-focus-within:text-orange-500 transition-colors">
+                                        <i data-lucide="lock" class="w-5 h-5"></i>
+                                    </div>
+                                    <input type="password" name="password" required placeholder="••••••••" class="w-full pl-12 pr-4 py-3.5 bg-slate-900/50 border border-slate-700 rounded-xl text-white placeholder-slate-600 focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500 transition-all font-medium" />
+                                </div>
+                            </div>
+                            
+                            <button type="submit" class="w-full py-4 mt-6 bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-400 hover:to-orange-500 text-white rounded-xl font-bold text-base shadow-lg shadow-orange-500/25 transition-all transform hover:-translate-y-0.5 flex items-center justify-center space-x-2">
+                                <span>Secure Login</span>
+                                <i data-lucide="arrow-right" class="w-5 h-5"></i>
+                            </button>
+                        </form>
+
+                        <div class="mt-8 pt-6 border-t border-slate-800/50 text-center">
+                            <p class="text-xs text-slate-500 mb-4">Firebase Auth not set up yet?</p>
+                            <button onclick="bypassLogin()" class="group relative inline-flex items-center justify-center px-6 py-2.5 text-sm font-bold text-slate-300 transition-all duration-200 bg-slate-800/50 border border-slate-700 rounded-xl hover:bg-slate-700 hover:text-white hover:border-slate-600 overflow-hidden w-full sm:w-auto">
+                                <span class="relative z-10 flex items-center">
+                                    <i data-lucide="rocket" class="w-4 h-4 mr-2 text-purple-400 group-hover:text-purple-300 transition-colors"></i> 
+                                    Bypass Login (Test Mode)
+                                </span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+        }
+
+        function MobileHeaderTemplate() {
+            const installBtn = state.canInstall ? `
+                <button onclick="installPWA()" class="bg-orange-500 text-white p-1.5 rounded-lg shadow flex items-center space-x-1 hover:bg-orange-600 transition-colors animate-fade-in">
+                    <i data-lucide="download" class="w-4 h-4"></i>
+                    <span class="text-[10px] font-bold tracking-wide uppercase pr-1">Install</span>
+                </button>
+            ` : '';
+
+            return `
+            <header class="md:hidden flex items-center justify-between bg-slate-900 text-white px-4 py-3 sticky top-0 z-30 shadow-md print:hidden">
+                <div class="flex items-center space-x-2">
+                    <div class="w-8 h-8 bg-orange-500 rounded flex items-center justify-center font-bold text-white tracking-widest text-xs">UVA</div>
+                    <h1 class="text-base sm:text-lg font-extrabold tracking-tight">Udaan Vibrant</h1>
+                </div>
+                <div class="flex items-center space-x-2">
+                    ${installBtn}
+                    <button onclick="handleLogout()" class="p-1.5 text-slate-400 hover:text-white transition-colors" title="Logout">
+                        <i data-lucide="log-out" class="w-5 h-5"></i>
+                    </button>
+                </div>
+            </header>`;
+        }
+
+        function MobileNavTemplate() {
+            const navBtn = (tab, icon, label) => `
+                <button onclick="switchTab('${tab}')" class="flex flex-col items-center justify-center w-full py-2 ${state.activeTab === tab ? 'text-orange-500' : 'text-slate-500 hover:text-slate-800'} transition-colors">
+                    <i data-lucide="${icon}" class="w-5 h-5 sm:w-6 sm:h-6 mb-1 ${state.activeTab === tab ? 'fill-orange-100' : ''}"></i>
+                    <span class="text-[10px] sm:text-xs font-bold tracking-wide">${label}</span>
+                </button>
+            `;
+            return `
+            <nav class="md:hidden fixed bottom-0 w-full bg-white border-t border-slate-200 flex justify-between z-40 pb-safe print:hidden shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+                ${navBtn('dashboard', 'bar-chart-3', 'Dash')}
+                ${navBtn('inquiries', 'user-plus', 'Inquiries')}
+                ${navBtn('admissions', 'book-open', 'Admissions')}
+                ${navBtn('attendance', 'check-square', 'Attend')}
+            </nav>`;
+        }
+
+        function SidebarTemplate() {
+            const btnClass = (active) => `w-full flex items-center space-x-3 px-4 py-3.5 rounded-xl transition-all font-semibold cursor-pointer ${
+                active ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/30' : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+            }`;
+
+            const installBtn = state.canInstall ? `
+                <div class="p-4 border-t border-slate-700 animate-fade-in">
+                    <button onclick="installPWA()" class="w-full bg-orange-500 text-white flex items-center justify-center space-x-2 px-4 py-3 rounded-xl hover:bg-orange-600 transition-colors shadow-lg shadow-orange-500/30">
+                        <i data-lucide="download" class="w-5 h-5"></i>
+                        <span class="font-bold tracking-wide uppercase text-sm">Install App</span>
+                    </button>
+                </div>
+            ` : '';
+
+            return `
+            <aside class="hidden md:flex w-64 bg-slate-900 text-white flex-col print:hidden shadow-xl z-20 flex-shrink-0">
+                <div class="p-6 border-b border-slate-700">
+                    <h1 class="text-3xl font-extrabold text-orange-500 tracking-tight">UVA<span class="text-white"> ERP</span></h1>
+                    <p class="text-xs text-slate-400 mt-1 font-medium tracking-wide uppercase">Udaan Vibrant Academy</p>
+                </div>
+                <nav class="flex-1 p-4 space-y-2 overflow-y-auto">
+                    <div onclick="switchTab('dashboard')" class="${btnClass(state.activeTab === 'dashboard')}">
+                        <i data-lucide="bar-chart-3" class="w-5 h-5"></i> <span>Dashboard</span>
+                    </div>
+                    <div onclick="switchTab('inquiries')" class="${btnClass(state.activeTab === 'inquiries')}">
+                        <i data-lucide="user-plus" class="w-5 h-5"></i> <span>Inquiries CRM</span>
+                    </div>
+                    <div onclick="switchTab('admissions')" class="${btnClass(state.activeTab === 'admissions')}">
+                        <i data-lucide="book-open" class="w-5 h-5"></i> <span>Admissions</span>
+                    </div>
+                    <div onclick="switchTab('attendance')" class="${btnClass(state.activeTab === 'attendance')}">
+                        <i data-lucide="check-square" class="w-5 h-5"></i> <span>Attendance</span>
+                    </div>
+                </nav>
+                <div class="p-4 border-t border-slate-700 flex flex-col space-y-2 flex-shrink-0">
+                    ${installBtn}
+                    <button onclick="handleLogout()" class="w-full text-slate-400 flex items-center justify-center space-x-2 px-4 py-3 rounded-xl hover:bg-slate-800 hover:text-red-400 transition-colors">
+                        <i data-lucide="log-out" class="w-5 h-5"></i>
+                        <span class="font-bold tracking-wide uppercase text-sm">Secure Logout</span>
+                    </button>
+                </div>
+            </aside>`;
+        }
+
+        function MainContentTemplate() {
+            if (state.receiptData) return ReceiptViewTemplate();
+            if (state.attendanceReportData) return AttendanceReportViewTemplate();
+            
+            switch (state.activeTab) {
+                case 'dashboard': return DashboardTemplate();
+                case 'inquiries': return InquiriesTemplate();
+                case 'admissions': return AdmissionsTemplate();
+                case 'attendance': return AttendanceTemplate();
+                default: return DashboardTemplate();
+            }
+        }
+
+        // --- DASHBOARD TEMPLATE ---
+        function DashboardTemplate() {
+            const activeInquiries = state.inquiries.filter(i => i.status !== 'Enrolled' && i.status !== 'Closed').length;
+            const enrolledCount = state.students.length;
+            const sourceCounts = state.inquiries.reduce((acc, inq) => { acc[inq.source] = (acc[inq.source] || 0) + 1; return acc; }, {});
+            const totalInquiries = state.inquiries.length;
+            const conversionRate = totalInquiries > 0 ? Math.round((enrolledCount / totalInquiries) * 100) : 0;
+
+            let sourceHTML = Object.entries(sourceCounts).sort((a,b)=>b[1]-a[1]).map(([source, count]) => `
+                <div>
+                    <div class="flex justify-between text-sm font-bold mb-2">
+                        <span class="text-slate-700">${source}</span>
+                        <span class="text-slate-600">${count} Leads <span class="font-normal text-slate-400 ml-1">(${Math.round(count/totalInquiries*100)}%)</span></span>
+                    </div>
+                    <div class="w-full bg-slate-100 rounded-full h-3 overflow-hidden shadow-inner">
+                        <div class="bg-gradient-to-r from-orange-400 to-orange-500 h-3 rounded-full transition-all duration-1000 ease-out" style="width: ${(count/totalInquiries)*100}%"></div>
+                    </div>
+                </div>
+            `).join('');
+            if(!sourceHTML) sourceHTML = `<p class="text-slate-400 text-sm">No data available yet.</p>`;
+
+            let recentHTML = state.students.slice(-5).reverse().map(std => `
+                <div class="flex items-center space-x-4 p-2 hover:bg-slate-50 rounded-xl transition-colors">
+                    <div class="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-orange-100 text-orange-600 flex items-center justify-center font-bold text-lg shadow-sm border border-orange-200 flex-shrink-0">
+                        ${std.name.charAt(0)}
+                    </div>
+                    <div class="truncate">
+                        <p class="font-bold text-slate-800 text-sm truncate">${std.name}</p>
+                        <p class="text-xs text-slate-500 font-medium mt-0.5 truncate">${std.type === 'Skill' ? std.course : `${std.std} (${std.medium})`}</p>
+                    </div>
+                </div>
+            `).join('');
+            if(!recentHTML) recentHTML = `<p class="text-slate-400 text-sm">No enrollments yet.</p>`;
+
+            return `
+            <div class="p-4 sm:p-6 md:p-8 min-h-full animate-fade-in">
+                <div class="mb-6 md:mb-8">
+                    <h2 class="text-2xl md:text-3xl font-extrabold text-slate-900 tracking-tight">Academy Dashboard</h2>
+                    <p class="text-sm md:text-base text-slate-500 font-medium mt-1">Track your growth, conversions, and top channels.</p>
+                </div>
+                
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6 mb-6 md:mb-8">
+                    <div onclick="switchTab('inquiries')" class="cursor-pointer bg-white rounded-2xl shadow-sm p-4 md:p-6 border border-slate-200 flex items-center space-x-4 md:space-x-5 transform hover:-translate-y-1 transition-all duration-300 hover:shadow-md hover:border-blue-300">
+                        <div class="bg-gradient-to-br from-blue-500 to-blue-600 text-white p-3 md:p-4 rounded-xl shadow-inner flex-shrink-0"><i data-lucide="users" class="w-6 h-6 md:w-7 md:h-7"></i></div>
+                        <div class="truncate"><p class="text-[10px] md:text-xs text-slate-500 font-semibold mb-0.5 md:mb-1 uppercase tracking-wide truncate">Active Inquiries</p><p class="text-2xl md:text-3xl font-extrabold text-slate-800">${activeInquiries}</p></div>
+                    </div>
+                    <div onclick="switchTab('admissions')" class="cursor-pointer bg-white rounded-2xl shadow-sm p-4 md:p-6 border border-slate-200 flex items-center space-x-4 md:space-x-5 transform hover:-translate-y-1 transition-all duration-300 hover:shadow-md hover:border-green-300">
+                        <div class="bg-gradient-to-br from-green-500 to-green-600 text-white p-3 md:p-4 rounded-xl shadow-inner flex-shrink-0"><i data-lucide="book-open" class="w-6 h-6 md:w-7 md:h-7"></i></div>
+                        <div class="truncate"><p class="text-[10px] md:text-xs text-slate-500 font-semibold mb-0.5 md:mb-1 uppercase tracking-wide truncate">Total Enrolled</p><p class="text-2xl md:text-3xl font-extrabold text-slate-800">${enrolledCount}</p></div>
+                    </div>
+                    <div onclick="switchTab('admissions')" class="cursor-pointer bg-white rounded-2xl shadow-sm p-4 md:p-6 border border-slate-200 flex items-center space-x-4 md:space-x-5 transform hover:-translate-y-1 transition-all duration-300 hover:shadow-md hover:border-purple-300">
+                        <div class="bg-gradient-to-br from-purple-500 to-purple-600 text-white p-3 md:p-4 rounded-xl shadow-inner flex-shrink-0"><i data-lucide="bar-chart-3" class="w-6 h-6 md:w-7 md:h-7"></i></div>
+                        <div class="truncate"><p class="text-[10px] md:text-xs text-slate-500 font-semibold mb-0.5 md:mb-1 uppercase tracking-wide truncate">Conversion Rate</p><p class="text-2xl md:text-3xl font-extrabold text-slate-800">${conversionRate}%</p></div>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-8">
+                    <div onclick="switchTab('inquiries')" class="cursor-pointer bg-white p-5 md:p-6 rounded-2xl shadow-sm border border-slate-200 lg:col-span-2 hover:shadow-md hover:border-orange-300 transition-all">
+                        <h3 class="text-base md:text-lg font-bold text-slate-800 mb-6 flex items-center">
+                            <i data-lucide="search" class="mr-2 text-orange-500 w-5 h-5"></i> Lead Sources Performance
+                        </h3>
+                        <div class="space-y-5 md:space-y-6">${sourceHTML}</div>
+                    </div>
+                    <div class="bg-white p-5 md:p-6 rounded-2xl shadow-sm border border-slate-200">
+                        <h3 class="text-base md:text-lg font-bold text-slate-800 mb-4 border-b pb-3">Recent Admissions</h3>
+                        <div class="space-y-3 pt-2">${recentHTML}</div>
+                    </div>
+                </div>
+            </div>`;
+        }
+
+        // --- INQUIRIES TEMPLATE ---
+        function InquiriesTemplate() {
+            let formHTML = '';
+            if(state.showNewInquiryForm) {
+                const d = state.newInquiryData;
+                let dynamicFields = '';
+                if(d.type === 'Skill') {
+                    const options = Object.keys(SKILL_COURSES).map(c => `<option value="${c}" ${d.course===c?'selected':''}>${c}</option>`).join('');
+                    dynamicFields = `
+                    <div class="col-span-1 md:col-span-3">
+                        <label class="block text-sm font-bold text-slate-600 mb-1.5">Select Professional Course</label>
+                        <select required onchange="updateNewInquiryData('course', this.value)" class="w-full p-2.5 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 bg-white text-sm">
+                            <option value="">-- Select Course --</option>${options}
+                        </select>
+                    </div>`;
+                } else {
+                    const stdOpts = TUITION_CLASSES.map(c => `<option value="${c}" ${d.std===c?'selected':''}>${c}</option>`).join('');
+                    dynamicFields = `
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-5 col-span-1 md:col-span-3">
+                        <div>
+                            <label class="block text-sm font-bold text-slate-600 mb-1.5">Standard</label>
+                            <select required onchange="updateNewInquiryData('std', this.value)" class="w-full p-2.5 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 bg-white text-sm">
+                                <option value="">Select Class</option>${stdOpts}
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-bold text-slate-600 mb-1.5">Board</label>
+                            <select required onchange="updateNewInquiryData('board', this.value)" class="w-full p-2.5 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 bg-white text-sm">
+                                <option value="">Select Board</option>
+                                <option value="GSEB" ${d.board==='GSEB'?'selected':''}>GSEB</option>
+                                <option value="CBSE" ${d.board==='CBSE'?'selected':''}>CBSE</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-bold text-slate-600 mb-1.5">Medium</label>
+                            <select required onchange="updateNewInquiryData('medium', this.value)" class="w-full p-2.5 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 bg-white text-sm">
+                                <option value="">Select Medium</option>
+                                <option value="Gujarati" ${d.medium==='Gujarati'?'selected':''}>Gujarati</option>
+                                <option value="English" ${d.medium==='English'?'selected':''}>English</option>
+                            </select>
+                        </div>
+                    </div>`;
+                }
+
+                const formTitle = state.editingInquiryId ? 'Update Lead Details' : 'Capture Lead Details';
+                const submitBtn = state.editingInquiryId ? 'Update Lead' : 'Save Lead';
+
+                formHTML = `
+                <div class="bg-white p-5 md:p-6 rounded-2xl shadow-sm border border-slate-200 mb-6 md:mb-8 animate-fade-in">
+                    <h3 class="text-base md:text-lg font-bold text-slate-800 mb-4 border-b pb-3">${formTitle}</h3>
+                    <form onsubmit="saveInquiry(event)" class="space-y-4 md:space-y-5">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-5">
+                            <div>
+                                <label class="block text-sm font-bold text-slate-600 mb-1.5">Student Name</label>
+                                <input required type="text" value="${d.name}" oninput="updateNewInquiryData('name', this.value)" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none transition-all text-sm" />
+                            </div>
+                            <div>
+                                <label class="block text-sm font-bold text-slate-600 mb-1.5">WhatsApp Number</label>
+                                <input required type="text" value="${d.phone}" oninput="updateNewInquiryData('phone', this.value)" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none transition-all text-sm" />
+                            </div>
+                            <div>
+                                <label class="block text-sm font-bold text-slate-600 mb-1.5">Inquiry Date</label>
+                                <input required type="date" value="${d.inquiryDate}" onchange="updateNewInquiryData('inquiryDate', this.value)" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none transition-all text-sm" />
+                            </div>
+                            <div>
+                                <label class="block text-sm font-bold text-slate-600 mb-1.5">Lead Source</label>
+                                <select onchange="updateNewInquiryData('source', this.value)" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none transition-all text-sm">
+                                    ${LEAD_SOURCES.map(s => `<option value="${s}" ${d.source===s?'selected':''}>${s}</option>`).join('')}
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="p-4 md:p-5 bg-slate-50 border border-slate-200 rounded-xl">
+                            <div class="flex flex-col sm:flex-row space-y-3 sm:space-y-0 sm:space-x-6 mb-5">
+                                <label class="flex items-center space-x-2 cursor-pointer">
+                                    <input type="radio" name="progType" onchange="updateNewInquiryData('type', 'Skill')" ${d.type==='Skill'?'checked':''} class="w-4 h-4 text-orange-500 focus:ring-orange-500 border-slate-300" />
+                                    <span class="font-bold text-slate-700 text-sm">Skills & AI Academy</span>
+                                </label>
+                                <label class="flex items-center space-x-2 cursor-pointer">
+                                    <input type="radio" name="progType" onchange="updateNewInquiryData('type', 'Tuition')" ${d.type==='Tuition'?'checked':''} class="w-4 h-4 text-orange-500 focus:ring-orange-500 border-slate-300" />
+                                    <span class="font-bold text-slate-700 text-sm">Academic Tuition (9-12)</span>
+                                </label>
+                            </div>
+                            ${dynamicFields}
+                        </div>
+
+                        <div class="flex flex-col sm:flex-row justify-end space-y-3 sm:space-y-0 sm:space-x-4 pt-2">
+                            <button type="button" onclick="toggleInquiryForm()" class="w-full sm:w-auto px-5 py-3 sm:py-2.5 text-slate-600 font-bold hover:bg-slate-100 rounded-xl transition-colors text-sm">Cancel</button>
+                            <button type="submit" class="w-full sm:w-auto px-6 py-3 sm:py-2.5 bg-slate-900 text-white font-bold rounded-xl hover:bg-slate-800 transition-colors shadow-md text-sm">${submitBtn}</button>
+                        </div>
+                    </form>
+                </div>`;
+            }
+
+            let tableHTML = state.inquiries.map(inq => {
+                const badgeClass = inq.type === 'Skill' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700';
+                const statusClass = inq.status === 'Enrolled' ? 'bg-green-50 text-green-700 border-green-200' :
+                                    inq.status === 'New' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                                    inq.status === 'Closed' ? 'bg-red-50 text-red-700 border-red-200' : 'bg-orange-50 text-orange-700 border-orange-200';
+                
+                const interestStr = inq.type === 'Skill' ? inq.course : `${inq.std} | ${inq.board} | ${inq.medium}`;
+                
+                let actionsHTML = `
+                    <button title="Send WhatsApp Welcome" onclick="openWhatsApp('${inq.phone}', 'welcome_inquiry', '${inq.name}', '${interestStr}')" class="p-2 text-green-600 hover:bg-green-100 rounded-lg transition-colors">
+                        <i data-lucide="message-circle" class="w-5 h-5 md:w-4 md:h-4"></i>
+                    </button>
+                `;
+                
+                if (inq.status !== 'Enrolled' && inq.status !== 'Closed') {
+                    actionsHTML += `
+                        <button title="Send WhatsApp Follow-up" onclick="openWhatsApp('${inq.phone}', 'followup_inquiry', '${inq.name}', '${interestStr}')" class="p-2 text-blue-600 hover:bg-blue-100 rounded-lg transition-colors">
+                            <i data-lucide="message-circle" class="w-5 h-5 md:w-4 md:h-4"></i>
+                        </button>
+                        <button onclick="openEnrollModal('${inq.id}')" class="ml-2 px-3 py-1.5 md:px-4 md:py-1.5 bg-slate-900 text-white text-xs md:text-sm font-bold rounded-lg hover:bg-slate-800 shadow-sm transition-colors whitespace-nowrap">
+                            Enroll Now
+                        </button>
+                    `;
+                } else if (inq.status === 'Enrolled') {
+                    actionsHTML += `
+                        <span class="ml-2 flex items-center text-green-600 font-bold text-xs md:text-sm bg-green-50 px-2 md:px-3 py-1.5 rounded-lg border border-green-200 inline-flex whitespace-nowrap">
+                            <i data-lucide="check-circle" class="w-4 h-4 mr-1"></i> Enrolled
+                        </span>
+                    `;
+                }
+
+                actionsHTML += `
+                    <button onclick="editInquiry('${inq.id}')" title="Edit Inquiry" class="ml-2 p-2 text-slate-500 hover:bg-slate-100 hover:text-blue-600 rounded-lg transition-colors">
+                        <i data-lucide="pencil" class="w-5 h-5 md:w-4 md:h-4"></i>
+                    </button>
+                    <button onclick="deleteInquiry('${inq.id}')" title="Delete Inquiry" class="p-2 text-slate-500 hover:bg-slate-100 hover:text-red-600 rounded-lg transition-colors">
+                        <i data-lucide="trash-2" class="w-5 h-5 md:w-4 md:h-4"></i>
+                    </button>
+                `;
+
+                return `
+                <tr class="hover:bg-slate-50 transition-colors border-b border-slate-100 last:border-0">
+                    <td class="p-3 sm:p-4 align-top whitespace-nowrap">
+                        <p class="font-bold text-slate-800 text-sm">${inq.name}</p>
+                        <p class="text-xs text-slate-500 font-medium mt-0.5">${inq.phone}</p>
+                        <p class="text-[10px] text-slate-400 mt-1 font-medium bg-slate-100 inline-block px-2 py-0.5 rounded border border-slate-200">Inq: ${new Date(inq.date).toLocaleDateString('en-IN')}</p>
+                    </td>
+                    <td class="p-3 sm:p-4 align-top whitespace-nowrap max-w-[150px] sm:max-w-[200px] md:max-w-none truncate">
+                        <span class="inline-block px-2 py-0.5 rounded text-[10px] uppercase tracking-widest font-bold mb-1 ${badgeClass}">${inq.type}</span>
+                        <p class="text-xs sm:text-sm font-bold text-slate-700 truncate" title="${interestStr}">${interestStr}</p>
+                    </td>
+                    <td class="p-3 sm:p-4 text-xs sm:text-sm font-medium text-slate-600 align-top whitespace-nowrap">${inq.source}</td>
+                    <td class="p-3 sm:p-4 align-top whitespace-nowrap">
+                        <select onchange="updateInquiryStatus('${inq.id}', this.value)" class="text-xs md:text-sm border rounded-lg p-1.5 md:p-2 font-bold outline-none cursor-pointer w-full md:w-auto ${statusClass}">
+                            <option value="New" ${inq.status==='New'?'selected':''}>New</option>
+                            <option value="Demo" ${inq.status==='Demo'?'selected':''}>Demo Attended</option>
+                            <option value="Follow-Up" ${inq.status==='Follow-Up'?'selected':''}>Follow-Up</option>
+                            <option value="Enrolled" ${inq.status==='Enrolled'?'selected':''} disabled>Enrolled</option>
+                            <option value="Closed" ${inq.status==='Closed'?'selected':''}>Closed</option>
+                        </select>
+                    </td>
+                    <td class="p-3 sm:p-4 text-right flex justify-end items-center space-x-0.5 md:space-x-1 align-top whitespace-nowrap">${actionsHTML}</td>
+                </tr>`;
+            }).join('');
+            if(!tableHTML) tableHTML = `<tr><td colspan="5" class="p-8 text-center text-slate-500 font-medium text-sm">No inquiries found.</td></tr>`;
+
+            return `
+            <div class="p-4 sm:p-6 md:p-8 relative min-h-full animate-fade-in">
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 md:mb-8 gap-4">
+                    <div>
+                        <h2 class="text-2xl md:text-3xl font-extrabold text-slate-900 tracking-tight">Inquiries & CRM</h2>
+                        <p class="text-sm md:text-base text-slate-500 font-medium mt-1">Manage leads, track status, and enroll students.</p>
+                    </div>
+                    <button onclick="toggleInquiryForm()" class="w-full sm:w-auto bg-orange-500 text-white px-5 py-3 sm:py-2.5 rounded-xl flex items-center justify-center space-x-2 hover:bg-orange-600 font-bold shadow-md transition-colors">
+                        <i data-lucide="plus" class="w-5 h-5"></i> <span>New Inquiry</span>
+                    </button>
+                </div>
+                ${formHTML}
+                <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-x-auto w-full">
+                    <table class="w-full min-w-[700px] text-left border-collapse">
+                        <thead>
+                            <tr class="bg-slate-50 border-b border-slate-200 text-[10px] sm:text-xs uppercase tracking-wider text-slate-500 font-bold">
+                                <th class="p-3 sm:p-4">Name & Contact</th><th class="p-3 sm:p-4">Interest (Course/Class)</th><th class="p-3 sm:p-4">Source</th><th class="p-3 sm:p-4">Status</th><th class="p-3 sm:p-4 text-right">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>${tableHTML}</tbody>
+                    </table>
+                </div>
+                ${EnrollModalTemplate()}
+            </div>`;
+        }
+
+        function EnrollModalTemplate() {
+            if (!state.enrollingLead) return '';
+            const l = state.enrollingLead;
+            const programName = l.type === 'Skill' ? l.course : `${l.std} ${l.board}`;
+            
+            return `
+            <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-3 sm:p-4 animate-fade-in">
+                <div class="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[85vh] md:max-h-[90vh] overflow-y-auto border border-slate-200">
+                    <div class="p-4 md:p-6 border-b border-slate-200 flex justify-between items-center bg-slate-50 sticky top-0 z-10">
+                        <div>
+                            <h3 class="text-lg md:text-xl font-extrabold text-slate-800">Complete Admission Details</h3>
+                            <p class="text-xs md:text-sm text-slate-500 mt-1 font-medium">Enrolling <span class="font-bold text-orange-600">${l.name}</span> into <br class="md:hidden"/>${programName}</p>
+                        </div>
+                        <button type="button" onclick="closeEnrollModal()" class="p-2 text-slate-400 hover:bg-slate-200 hover:text-slate-700 rounded-full transition-colors">
+                            <i data-lucide="x" class="w-5 h-5"></i>
+                        </button>
+                    </div>
+                    
+                    <form onsubmit="confirmEnroll(event)" class="p-4 md:p-8 space-y-6 md:space-y-8">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8">
+                            <!-- Student Details -->
+                            <div class="space-y-4 md:space-y-5">
+                                <h4 class="font-bold text-slate-800 border-b-2 border-slate-100 pb-2 flex items-center text-sm md:text-base"><i data-lucide="user-plus" class="w-4 h-4 mr-2 text-orange-500"></i> Student Information</h4>
+                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-5">
+                                    <div><label class="block text-xs font-bold text-slate-600 mb-1">Joining Date</label><input required type="date" name="joiningDate" value="${new Date().toISOString().split('T')[0]}" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none text-sm font-medium text-slate-700" /></div>
+                                    <div><label class="block text-xs font-bold text-slate-600 mb-1">Date of Birth</label><input type="date" name="dob" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none text-sm font-medium text-slate-700" /></div>
+                                    <div><label class="block text-xs font-bold text-slate-600 mb-1">Gender</label>
+                                        <select name="gender" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 text-sm font-medium text-slate-700">
+                                            <option value="">Select</option><option value="Male">Male</option><option value="Female">Female</option><option value="Other">Other</option>
+                                        </select>
+                                    </div>
+                                    <div><label class="block text-xs font-bold text-slate-600 mb-1">Blood Group</label>
+                                        <select name="bloodGroup" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 text-sm font-medium text-slate-700">
+                                            <option value="">Select</option><option value="A+">A+</option><option value="A-">A-</option><option value="B+">B+</option><option value="B-">B-</option><option value="O+">O+</option><option value="O-">O-</option><option value="AB+">AB+</option><option value="AB-">AB-</option>
+                                        </select>
+                                    </div>
+                                    <div class="sm:col-span-2"><label class="block text-xs font-bold text-slate-600 mb-1">Preferred Batch</label><input type="text" name="batchTiming" placeholder="e.g. 4 PM - 6 PM" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 text-sm font-medium text-slate-700" /></div>
+                                    <div class="sm:col-span-2"><label class="block text-xs font-bold text-slate-600 mb-1">Free Add-on Course (Offer)</label><input type="text" name="freeOffer" placeholder="e.g. Soft Skills (Free) or None" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 text-sm font-medium text-slate-700" /></div>
+                                </div>
+                                <div><label class="block text-xs font-bold text-slate-600 mb-1">Residential Address</label><textarea rows="2" name="address" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 text-sm font-medium text-slate-700"></textarea></div>
+                            </div>
+                            <!-- Parent Details -->
+                            <div class="space-y-4 md:space-y-5">
+                                <h4 class="font-bold text-slate-800 border-b-2 border-slate-100 pb-2 flex items-center text-sm md:text-base"><i data-lucide="users" class="w-4 h-4 mr-2 text-orange-500"></i> Parent / Guardian Info</h4>
+                                <div><label class="block text-xs font-bold text-slate-600 mb-1">Parent's Full Name</label><input type="text" name="parentName" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 text-sm font-medium text-slate-700" /></div>
+                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-5">
+                                    <div><label class="block text-xs font-bold text-slate-600 mb-1">Parent's Phone</label><input type="text" name="parentPhone" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 text-sm font-medium text-slate-700" /></div>
+                                    <div><label class="block text-xs font-bold text-slate-600 mb-1">Occupation</label><input type="text" name="parentOccupation" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 text-sm font-medium text-slate-700" /></div>
+                                </div>
+                                <div><label class="block text-xs font-bold text-slate-600 mb-1">Parent's Email</label><input type="email" name="parentEmail" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 text-sm font-medium text-slate-700" /></div>
+                            </div>
+                        </div>
+                        <div class="flex flex-col sm:flex-row justify-end space-y-3 sm:space-y-0 sm:space-x-4 pt-4 border-t border-slate-100">
+                            <button type="button" onclick="closeEnrollModal()" class="w-full sm:w-auto px-6 py-3 md:py-2.5 text-slate-600 font-bold hover:bg-slate-100 rounded-xl transition-colors text-sm">Cancel</button>
+                            <button type="submit" class="w-full sm:w-auto px-8 py-3 md:py-2.5 bg-slate-900 text-white font-bold rounded-xl hover:bg-slate-800 shadow-xl shadow-slate-900/20 transition-all flex items-center justify-center text-sm">
+                                <i data-lucide="check-circle" class="w-4 h-4 mr-2"></i> Confirm Admission
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>`;
+        }
+
+        function EditStudentModalTemplate() {
+            if (!state.editingStudentData) return '';
+            const std = state.editingStudentData;
+            
+            return `
+            <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-3 sm:p-4 animate-fade-in">
+                <div class="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[85vh] md:max-h-[90vh] overflow-y-auto border border-slate-200">
+                    <div class="p-4 md:p-6 border-b border-slate-200 flex justify-between items-center bg-slate-50 sticky top-0 z-10">
+                        <div>
+                            <h3 class="text-lg md:text-xl font-extrabold text-slate-800">Edit Admission Details</h3>
+                            <p class="text-xs md:text-sm text-slate-500 mt-1 font-medium">Updating records for <span class="font-bold text-orange-600">${std.name}</span></p>
+                        </div>
+                        <button type="button" onclick="closeEditStudentModal()" class="p-2 text-slate-400 hover:bg-slate-200 hover:text-slate-700 rounded-full transition-colors">
+                            <i data-lucide="x" class="w-5 h-5"></i>
+                        </button>
+                    </div>
+                    
+                    <form onsubmit="confirmEditStudent(event)" class="p-4 md:p-8 space-y-6 md:space-y-8">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8">
+                            <!-- Student Details -->
+                            <div class="space-y-4 md:space-y-5">
+                                <h4 class="font-bold text-slate-800 border-b-2 border-slate-100 pb-2 flex items-center text-sm md:text-base"><i data-lucide="user" class="w-4 h-4 mr-2 text-orange-500"></i> Edit Student Information</h4>
+                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-5">
+                                    <div class="sm:col-span-2"><label class="block text-xs font-bold text-slate-600 mb-1">Student Full Name</label><input required type="text" name="name" value="${std.name}" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none text-sm font-medium text-slate-700" /></div>
+                                    <div class="sm:col-span-2"><label class="block text-xs font-bold text-slate-600 mb-1">WhatsApp / Phone</label><input required type="text" name="phone" value="${std.phone}" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none text-sm font-medium text-slate-700" /></div>
+                                    
+                                    <div><label class="block text-xs font-bold text-slate-600 mb-1">Joining Date</label><input required type="date" name="joiningDate" value="${std.date}" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none text-sm font-medium text-slate-700" /></div>
+                                    <div><label class="block text-xs font-bold text-slate-600 mb-1">Date of Birth</label><input type="date" name="dob" value="${std.dob}" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none text-sm font-medium text-slate-700" /></div>
+                                    <div><label class="block text-xs font-bold text-slate-600 mb-1">Gender</label>
+                                        <select name="gender" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 text-sm font-medium text-slate-700">
+                                            <option value="Male" ${std.gender==='Male'?'selected':''}>Male</option><option value="Female" ${std.gender==='Female'?'selected':''}>Female</option><option value="Other" ${std.gender==='Other'?'selected':''}>Other</option><option value="Not Specified" ${std.gender==='Not Specified'?'selected':''}>Not Specified</option>
+                                        </select>
+                                    </div>
+                                    <div><label class="block text-xs font-bold text-slate-600 mb-1">Blood Group</label>
+                                        <select name="bloodGroup" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 text-sm font-medium text-slate-700">
+                                            <option value="-" ${std.bloodGroup==='-'?'selected':''}>-</option><option value="A+" ${std.bloodGroup==='A+'?'selected':''}>A+</option><option value="A-" ${std.bloodGroup==='A-'?'selected':''}>A-</option><option value="B+" ${std.bloodGroup==='B+'?'selected':''}>B+</option><option value="B-" ${std.bloodGroup==='B-'?'selected':''}>B-</option><option value="O+" ${std.bloodGroup==='O+'?'selected':''}>O+</option><option value="O-" ${std.bloodGroup==='O-'?'selected':''}>O-</option><option value="AB+" ${std.bloodGroup==='AB+'?'selected':''}>AB+</option><option value="AB-" ${std.bloodGroup==='AB-'?'selected':''}>AB-</option>
+                                        </select>
+                                    </div>
+                                    <div class="sm:col-span-2"><label class="block text-xs font-bold text-slate-600 mb-1">Preferred Batch</label><input type="text" name="batchTiming" value="${std.batchTiming}" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 text-sm font-medium text-slate-700" /></div>
+                                    <div class="sm:col-span-2"><label class="block text-xs font-bold text-slate-600 mb-1">Free Add-on Course (Offer)</label><input type="text" name="freeOffer" value="${std.freeOffer || 'None'}" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 text-sm font-medium text-slate-700" /></div>
+                                </div>
+                                <div><label class="block text-xs font-bold text-slate-600 mb-1">Residential Address</label><textarea rows="2" name="address" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 text-sm font-medium text-slate-700">${std.address}</textarea></div>
+                            </div>
+                            <!-- Parent Details -->
+                            <div class="space-y-4 md:space-y-5">
+                                <h4 class="font-bold text-slate-800 border-b-2 border-slate-100 pb-2 flex items-center text-sm md:text-base"><i data-lucide="users" class="w-4 h-4 mr-2 text-orange-500"></i> Edit Parent / Guardian Info</h4>
+                                <div><label class="block text-xs font-bold text-slate-600 mb-1">Parent's Full Name</label><input type="text" name="parentName" value="${std.parentName}" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 text-sm font-medium text-slate-700" /></div>
+                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-5">
+                                    <div><label class="block text-xs font-bold text-slate-600 mb-1">Parent's Phone</label><input type="text" name="parentPhone" value="${std.parentPhone}" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 text-sm font-medium text-slate-700" /></div>
+                                    <div><label class="block text-xs font-bold text-slate-600 mb-1">Occupation</label><input type="text" name="parentOccupation" value="${std.parentOccupation}" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 text-sm font-medium text-slate-700" /></div>
+                                </div>
+                                <div><label class="block text-xs font-bold text-slate-600 mb-1">Parent's Email</label><input type="email" name="parentEmail" value="${std.parentEmail}" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 text-sm font-medium text-slate-700" /></div>
+                            </div>
+                        </div>
+                        <div class="flex flex-col sm:flex-row justify-end space-y-3 sm:space-y-0 sm:space-x-4 pt-4 border-t border-slate-100">
+                            <button type="button" onclick="closeEditStudentModal()" class="w-full sm:w-auto px-6 py-3 md:py-2.5 text-slate-600 font-bold hover:bg-slate-100 rounded-xl transition-colors text-sm">Cancel</button>
+                            <button type="submit" class="w-full sm:w-auto px-8 py-3 md:py-2.5 bg-slate-900 text-white font-bold rounded-xl hover:bg-slate-800 shadow-xl shadow-slate-900/20 transition-all flex items-center justify-center text-sm">
+                                <i data-lucide="save" class="w-4 h-4 mr-2"></i> Save Changes
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>`;
+        }
+
+        // --- ADMISSIONS TEMPLATE ---
+        function AdmissionsTemplate() {
+            // Determine active courses for filter dropdown
+            const activeCourses = [...new Set(state.students
+                .filter(s => state.admProgramFilter === 'All' || s.type === state.admProgramFilter)
+                .map(s => s.type === 'Skill' ? s.course : `${s.std} ${s.board} ${s.medium}`)
+            )];
+
+            // Filter students based on all selected criteria
+            let filteredStudents = state.students.filter(std => {
+                const matchesSearch = std.name.toLowerCase().includes(state.admSearchQuery.toLowerCase()) || std.id.toLowerCase().includes(state.admSearchQuery.toLowerCase());
+                const matchesProgram = state.admProgramFilter === 'All' || std.type === state.admProgramFilter;
+                const stdCourse = std.type === 'Skill' ? std.course : `${std.std} ${std.board} ${std.medium}`;
+                const matchesCourse = state.admCourseFilter === 'All' || stdCourse === state.admCourseFilter;
+                
+                const hasOffer = std.freeOffer && std.freeOffer !== 'None';
+                const matchesOffer = state.admOfferFilter === 'All' || 
+                                    (state.admOfferFilter === 'With Offer' ? hasOffer : !hasOffer);
+
+                return matchesSearch && matchesProgram && matchesCourse && matchesOffer;
+            });
+
+            let stdHTML = filteredStudents.map(std => {
+                const courseName = std.type === 'Skill' ? std.course : `${std.std} | ${std.board} (${std.medium} Med.)`;
+                const offerBadge = (std.freeOffer && std.freeOffer !== 'None') ? `<p class="text-[10px] md:text-xs text-orange-600 font-bold mt-1.5 bg-orange-50 inline-block px-2.5 py-0.5 rounded border border-orange-200">Offer Applied: ${std.freeOffer}</p>` : '';
+                return `
+                <div class="bg-white p-4 md:p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between md:items-center gap-4 md:gap-6 hover:shadow-md transition-shadow">
+                    <div class="flex-1">
+                        <div class="flex items-center space-x-3 mb-1.5">
+                            <h3 class="text-lg md:text-xl font-extrabold text-slate-800">${std.name}</h3>
+                            <span class="text-[10px] md:text-xs font-bold font-mono bg-slate-100 text-slate-600 px-2.5 py-1 rounded-md border border-slate-200">${std.id}</span>
+                        </div>
+                        <p class="text-xs md:text-sm text-slate-600 font-bold mb-1 leading-snug">${courseName}</p>
+                        <p class="text-[10px] md:text-xs text-slate-400 font-medium">Phone: +91 ${std.phone} • Enrolled: ${std.date}</p>
+                        ${offerBadge}
+                    </div>
+                    <div class="flex space-x-2 md:space-x-3 pt-3 md:pt-0 border-t border-slate-100 md:border-0 mt-3 md:mt-0 w-full md:w-auto">
+                        <button onclick="openEditStudentModal('${std.id}')" title="Edit Student" class="flex-1 md:flex-none md:w-auto px-4 py-3 md:py-2.5 bg-slate-100 text-slate-600 rounded-xl text-sm font-bold hover:bg-slate-200 hover:text-slate-800 flex items-center justify-center space-x-1 transition-all">
+                            <i data-lucide="pencil" class="w-4 h-4 md:w-5 md:h-5"></i><span class="md:hidden lg:inline text-xs">Edit</span>
+                        </button>
+                        <button onclick="deleteStudent('${std.id}')" title="Delete Student" class="flex-1 md:flex-none md:w-auto px-4 py-3 md:py-2.5 bg-red-50 text-red-500 rounded-xl text-sm font-bold hover:bg-red-100 hover:text-red-600 flex items-center justify-center space-x-1 transition-all">
+                            <i data-lucide="trash-2" class="w-4 h-4 md:w-5 md:h-5"></i><span class="md:hidden lg:inline text-xs">Delete</span>
+                        </button>
+                        <button onclick="openReceipt('${std.id}')" class="flex-1 md:flex-none md:w-auto px-5 py-3 md:py-2.5 bg-orange-500 text-white rounded-xl text-sm font-bold hover:bg-orange-600 flex items-center justify-center space-x-2 shadow-md shadow-orange-500/20 transition-all">
+                            <i data-lucide="file-text" class="w-4 h-4 md:w-5 md:h-5"></i> <span>Form</span>
+                        </button>
+                    </div>
+                </div>`;
+            }).join('');
+
+            if(filteredStudents.length === 0) stdHTML = `<div class="p-8 md:p-10 text-center text-slate-500 font-medium bg-white rounded-2xl border border-dashed border-slate-300 text-sm md:text-base">No students found matching your filters.</div>`;
+
+            return `
+            <div class="p-4 sm:p-6 md:p-8 min-h-full animate-fade-in">
+                <div class="mb-6 md:mb-8">
+                    <h2 class="text-2xl md:text-3xl font-extrabold text-slate-900 tracking-tight">Admissions</h2>
+                    <p class="text-sm md:text-base text-slate-500 font-medium mt-1">Manage enrolled students, print forms, and search.</p>
+                </div>
+
+                <!-- Admissions Filters -->
+                <div class="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-slate-200 mb-6 md:mb-8">
+                    <h3 class="text-sm font-bold text-slate-800 mb-4 border-b pb-2 uppercase tracking-wider">Filter Records</h3>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 mb-1.5 uppercase">Search Student</label>
+                            <div class="relative">
+                                <i data-lucide="search" class="absolute left-3 top-3.5 text-slate-400 w-4 h-4"></i>
+                                <input type="text" placeholder="Name or ID..." value="${state.admSearchQuery}" oninput="updateAdmSearch(this.value)" class="w-full pl-9 p-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none font-bold text-slate-700 transition-all shadow-sm text-sm" />
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 mb-1.5 uppercase">Program Type</label>
+                            <select onchange="updateAdmProgramFilter(this.value)" class="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none font-bold text-slate-700 transition-all text-sm">
+                                <option value="All" ${state.admProgramFilter==='All'?'selected':''}>All Programs</option>
+                                <option value="Skill" ${state.admProgramFilter==='Skill'?'selected':''}>Skills & AI Academy</option>
+                                <option value="Tuition" ${state.admProgramFilter==='Tuition'?'selected':''}>Academic Tuition</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 mb-1.5 uppercase">Course / Class</label>
+                            <select onchange="updateAdmCourseFilter(this.value)" class="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none font-bold text-slate-700 transition-all text-sm">
+                                <option value="All">All Courses</option>
+                                ${activeCourses.map(c => `<option value="${c}" ${state.admCourseFilter===c?'selected':''}>${c}</option>`).join('')}
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 mb-1.5 uppercase">Offer Applied</label>
+                            <select onchange="updateAdmOfferFilter(this.value)" class="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none font-bold text-slate-700 transition-all text-sm">
+                                <option value="All" ${state.admOfferFilter==='All'?'selected':''}>All Students</option>
+                                <option value="With Offer" ${state.admOfferFilter==='With Offer'?'selected':''}>With Free Offer</option>
+                                <option value="No Offer" ${state.admOfferFilter==='No Offer'?'selected':''}>No Offer</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 gap-4 md:gap-5">${stdHTML}</div>
+                ${EditStudentModalTemplate()}
+            </div>`;
+        }
+
+        // --- ATTENDANCE TEMPLATE ---
+        function AttendanceTemplate() {
+            const batches = getBatches();
+            const filteredStudents = getFilteredStudents();
+
+            let batchOptions = batches.map(b => `<option value="${b}" ${state.attSelectedBatch===b?'selected':''}>${b}</option>`).join('');
+            
+            let displayHTML = '';
+            if (state.attSelectedBatch) {
+                let stdRows = filteredStudents.map(std => {
+                    const currentStatus = state.attState[std.id]?.status || 'Present';
+                    const currentReason = state.attState[std.id]?.reason || '';
+                    
+                    let reasonHTML = '';
+                    if (currentStatus === 'Absent') {
+                        reasonHTML = `
+                        <div class="w-full sm:w-56 transition-all mt-2 sm:mt-0">
+                            <select onchange="updateAttReason('${std.id}', this.value)" class="w-full text-sm border-slate-300 rounded-xl p-2.5 sm:p-3 bg-white text-slate-700 shadow-sm focus:ring-2 focus:ring-red-500 border outline-none font-bold">
+                                <option value="">Select Reason...</option>
+                                <option value="Sick/Health Issue" ${currentReason==='Sick/Health Issue'?'selected':''}>Sick / Health Issue</option>
+                                <option value="Family Emergency" ${currentReason==='Family Emergency'?'selected':''}>Family Emergency</option>
+                                <option value="Travel/Out of Town" ${currentReason==='Travel/Out of Town'?'selected':''}>Travel / Out of Town</option>
+                                <option value="Uninformed" ${currentReason==='Uninformed'?'selected':''}>Uninformed</option>
+                                <option value="Other" ${currentReason==='Other'?'selected':''}>Other</option>
+                            </select>
+                        </div>`;
+                    }
+
+                    return `
+                    <div class="p-4 flex flex-col xl:flex-row xl:justify-between xl:items-center hover:bg-slate-50 rounded-xl transition-colors gap-3 md:gap-4 border-b border-slate-100 last:border-0">
+                        <div class="flex items-center space-x-3 md:space-x-4">
+                            <div class="w-10 h-10 md:w-12 md:h-12 bg-slate-200 rounded-full flex items-center justify-center text-slate-600 font-extrabold text-lg md:text-xl shadow-inner border border-slate-300 flex-shrink-0">${std.name.charAt(0)}</div>
+                            <div class="truncate">
+                                <p class="font-extrabold text-slate-800 text-base md:text-lg truncate">${std.name}</p>
+                                <p class="text-xs md:text-sm font-mono text-slate-500 font-bold mt-0.5">ID: ${std.id}</p>
+                            </div>
+                        </div>
+                        <div class="flex flex-col sm:flex-row items-end sm:items-center gap-2 md:gap-3 w-full xl:w-auto mt-2 xl:mt-0">
+                            <div class="flex bg-slate-100 p-1.5 rounded-xl border border-slate-200 shadow-sm w-full sm:w-auto">
+                                <button onclick="toggleAttendance('${std.id}', 'Present')" class="flex-1 sm:flex-none px-4 md:px-8 py-2 md:py-2.5 rounded-lg font-bold transition-all text-xs md:text-sm ${currentStatus === 'Present' ? 'bg-green-500 text-white shadow-md' : 'text-slate-500 hover:text-green-600 hover:bg-green-50'}">Present</button>
+                                <button onclick="toggleAttendance('${std.id}', 'Absent')" class="flex-1 sm:flex-none px-4 md:px-8 py-2 md:py-2.5 rounded-lg font-bold transition-all text-xs md:text-sm ${currentStatus === 'Absent' ? 'bg-red-500 text-white shadow-md' : 'text-slate-500 hover:text-red-600 hover:bg-red-50'}">Absent</button>
+                            </div>
+                            ${reasonHTML}
+                        </div>
+                    </div>`;
+                }).join('');
+
+                if(filteredStudents.length === 0) stdRows = `<div class="p-8 text-center text-slate-500 font-medium text-sm md:text-base">No students found in this batch based on your filters.</div>`;
+
+                displayHTML = `
+                <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden animate-fade-in">
+                    <div class="p-4 md:p-6 bg-slate-900 flex flex-col sm:flex-row sm:justify-between sm:items-center text-white gap-4">
+                        <div>
+                            <h3 class="font-bold text-lg md:text-xl text-orange-400">${state.attSelectedBatch}</h3>
+                            <p class="text-slate-300 text-xs md:text-sm font-medium mt-1">${filteredStudents.length} Students | Date: ${new Date(state.attDate).toLocaleDateString('en-IN')}</p>
+                        </div>
+                        <div class="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-3 w-full sm:w-auto">
+                            <button onclick="openAttendanceReport()" class="w-full sm:w-auto bg-slate-700 text-white border border-slate-600 px-4 py-2.5 rounded-xl text-sm font-bold hover:bg-slate-600 flex items-center justify-center transition-colors shadow-sm">
+                                <i data-lucide="file-text" class="w-4 h-4 mr-2"></i> Report PDF
+                            </button>
+                            <button onclick="notifyAbsentees()" class="w-full sm:w-auto bg-orange-500 text-white px-4 py-2.5 rounded-xl text-sm font-bold hover:bg-orange-600 flex items-center justify-center transition-colors shadow-sm">
+                                <i data-lucide="message-circle" class="w-4 h-4 mr-2"></i> Notify
+                            </button>
+                        </div>
+                    </div>
+                    <div class="p-2 md:p-4">${stdRows}</div>
+                    <div class="p-4 md:p-5 bg-slate-50 border-t flex flex-col sm:flex-row justify-between items-center gap-4">
+                        <button onclick="clearAttendance()" class="w-full sm:w-auto px-4 py-3 md:py-3 bg-red-50 text-red-600 font-bold rounded-xl hover:bg-red-100 transition-colors text-sm md:text-base flex items-center justify-center">
+                            <i data-lucide="eraser" class="w-4 h-4 md:w-5 md:h-5 mr-1 md:mr-2"></i> <span class="hidden sm:inline">Clear Form</span><span class="sm:hidden">Clear</span>
+                        </button>
+                        <button class="w-full sm:w-auto px-6 py-3 md:py-3 bg-slate-900 text-white font-bold rounded-xl hover:bg-slate-800 shadow-lg flex items-center justify-center transition-colors text-sm md:text-base">
+                            <i data-lucide="check-square" class="w-4 h-4 md:w-5 md:h-5 mr-2"></i> Save Record
+                        </button>
+                    </div>
+                </div>`;
+            } else {
+                displayHTML = `
+                <div class="flex items-center justify-center h-48 md:h-64 border-2 border-dashed border-slate-300 rounded-2xl bg-white p-4">
+                    <div class="text-center">
+                        <i data-lucide="search" class="mx-auto text-slate-300 mb-3 w-8 h-8 md:w-10 md:h-10"></i>
+                        <p class="text-slate-500 font-bold text-base md:text-lg">Select a Batch</p>
+                        <p class="text-slate-400 text-xs md:text-sm mt-1">Use the filters above to load the student list.</p>
+                    </div>
+                </div>`;
+            }
+
+            return `
+            <div class="p-4 sm:p-6 md:p-8 bg-slate-50 min-h-full animate-fade-in">
+                <div class="mb-6 md:mb-8">
+                    <h2 class="text-2xl md:text-3xl font-extrabold text-slate-900 tracking-tight">Attendance</h2>
+                    <p class="text-sm md:text-base text-slate-500 font-medium mt-1">Track batch presence and generate monthly reports.</p>
+                </div>
+                
+                <div class="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-slate-200 mb-6 md:mb-8">
+                    <h3 class="text-sm font-bold text-slate-800 mb-4 border-b pb-2 uppercase tracking-wider">Attendance Filters</h3>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 mb-1.5 uppercase">Program Type</label>
+                            <select onchange="updateAttFilter(this.value)" class="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none font-bold text-slate-700 transition-all text-sm">
+                                <option value="All" ${state.attFilterCategory==='All'?'selected':''}>All Programs</option>
+                                <option value="Skill" ${state.attFilterCategory==='Skill'?'selected':''}>Skills & AI Academy</option>
+                                <option value="Tuition" ${state.attFilterCategory==='Tuition'?'selected':''}>Academic Tuition</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 mb-1.5 uppercase">Select Batch</label>
+                            <select onchange="updateAttBatch(this.value)" class="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none font-bold text-slate-700 transition-all text-sm">
+                                <option value="">-- Choose Batch --</option>${batchOptions}
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 mb-1.5 uppercase">Date (View/Mark)</label>
+                            <input type="date" value="${state.attDate}" onchange="updateAttDate(this.value)" class="w-full p-2.5 bg-orange-50 border border-orange-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none font-bold text-orange-700 transition-all shadow-sm text-sm" />
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 mb-1.5 uppercase">Report Month</label>
+                            <input type="month" value="${state.attReportMonth}" onchange="updateAttMonth(this.value)" class="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none font-bold text-slate-700 transition-all text-sm" />
+                        </div>
+                    </div>
+                </div>
+                ${displayHTML}
+            </div>`;
+        }
+
+        // --- RECEIPT TEMPLATE (Printable) ---
+        function ReceiptViewTemplate() {
+            const data = state.receiptData;
+            const programName = data.type === 'Skill' ? data.course : `${data.std} Commerce`;
+            const dur = data.type === 'Tuition' ? `${data.board} | ${data.medium}` : SKILL_COURSES[data.course]?.duration;
+            
+            let photoHTML = state.studentPhotoUrl ? 
+                `<img src="${state.studentPhotoUrl}" alt="Student" class="w-full h-full object-cover" />` : 
+                `<span class="group-hover:text-orange-500 transition-colors font-bold text-slate-600">Click to Add<br/>Student Photo</span><span class="mt-3 text-[10px] text-slate-400 border-t border-slate-300 pt-2 w-full print:hidden font-medium">Or attach physical<br/>photo after print</span>`;
+
+            return `
+            <div class="p-4 sm:p-8 max-w-4xl mx-auto bg-gray-50 min-h-[100dvh] print:p-0 print:bg-white animate-fade-in">
+                <div class="flex flex-col sm:flex-row justify-between items-center mb-6 print:hidden gap-3">
+                    <button onclick="closeReceipt()" class="w-full sm:w-auto px-5 py-2.5 bg-white border border-slate-300 rounded-xl hover:bg-slate-50 font-bold shadow-sm transition-colors text-slate-700">← Back</button>
+                    <div class="flex space-x-3 w-full sm:w-auto justify-end">
+                        <label class="cursor-pointer px-4 py-2.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-xl text-xs md:text-sm font-bold hover:bg-blue-100 transition-colors shadow-sm whitespace-nowrap">
+                            Change Logo<input type="file" accept="image/*" onchange="handleLogoUpload(this)" class="hidden" />
+                        </label>
+                        <button onclick="window.print()" class="px-5 py-2.5 bg-orange-500 text-white rounded-xl hover:bg-orange-600 font-bold flex items-center justify-center space-x-2 shadow-sm transition-colors whitespace-nowrap">
+                            <i data-lucide="printer" class="w-4 h-4"></i> <span>Print</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="overflow-x-auto print:overflow-visible">
+                    <div class="bg-white p-6 md:p-10 rounded-2xl shadow-xl print:shadow-none print:p-6 border-t-[8px] md:border-t-[12px] border-slate-900 border-x border-b min-w-[700px]">
+                        <div class="flex justify-between items-center border-b-[3px] border-slate-800 pb-6 mb-6">
+                            <div class="w-24 h-24 md:w-32 md:h-32 flex items-center justify-center overflow-hidden bg-white">
+                                <img src="${state.logoUrl}" alt="UVA Logo" class="w-full h-full object-contain" />
+                            </div>
+                            <div class="flex-1 text-center px-4">
+                                <h1 class="text-3xl md:text-4xl font-extrabold text-slate-900 tracking-tight">UDAAN</h1>
+                                <h2 class="text-xl md:text-2xl font-bold text-orange-500 tracking-widest uppercase mt-1">Vibrant Academy</h2>
+                                <p class="text-xs md:text-sm text-slate-600 italic mt-2 font-bold">"Where Learning Takes Flight"</p>
+                                <div class="mt-3 md:mt-4 inline-block bg-slate-900 text-white px-6 py-1.5 rounded-full font-bold uppercase tracking-widest text-[10px] md:text-sm shadow-sm">Admission Form</div>
+                            </div>
+                            <label class="w-24 h-32 md:w-28 md:h-36 border-2 border-dashed border-slate-400 flex flex-col items-center justify-center text-center p-1 text-[10px] md:text-xs text-slate-500 bg-slate-50 rounded-lg overflow-hidden cursor-pointer hover:bg-slate-100 transition-colors group relative">
+                                <input type="file" accept="image/*" onchange="handlePhotoUpload(this)" class="hidden print:hidden" />
+                                ${photoHTML}
+                            </label>
+                        </div>
+
+                        <div class="flex justify-between text-xs md:text-sm font-bold text-slate-700 mb-8 bg-slate-50 p-3 rounded-lg border border-slate-200">
+                            <p>Student ID: <span class="font-mono font-extrabold text-slate-900 ml-2 bg-white px-2 py-0.5 rounded border">${data.id}</span></p>
+                            <p>Date: <span class="font-extrabold text-slate-900 ml-2">${new Date().toLocaleDateString('en-IN')}</span></p>
+                        </div>
+
+                        <div class="mb-8">
+                            <h3 class="bg-slate-100 p-2 font-bold text-slate-800 border-l-[6px] border-orange-500 mb-5 uppercase text-xs md:text-sm tracking-wide">1. Student Details</h3>
+                            <div class="grid grid-cols-2 gap-y-6 gap-x-10 text-xs md:text-sm">
+                                <div class="flex flex-col"><span class="text-slate-500 font-bold uppercase text-[10px] md:text-[11px] tracking-wider">Full Name (As per records):</span><div class="border-b-2 border-slate-300 mt-1 font-bold text-slate-900 text-sm md:text-base pb-1">${data.name}</div></div>
+                                <div class="flex flex-col"><span class="text-slate-500 font-bold uppercase text-[10px] md:text-[11px] tracking-wider">Contact Number (WhatsApp):</span><div class="border-b-2 border-slate-300 mt-1 font-bold text-slate-900 text-sm md:text-base pb-1">+91 ${data.phone}</div></div>
+                                <div class="flex flex-col"><span class="text-slate-500 font-bold uppercase text-[10px] md:text-[11px] tracking-wider">Date of Birth (DD/MM/YYYY):</span><div class="border-b-2 border-slate-300 mt-1 font-bold text-slate-900 text-sm md:text-base pb-1">${data.dob}</div></div>
+                                <div class="flex flex-col"><span class="text-slate-500 font-bold uppercase text-[10px] md:text-[11px] tracking-wider">Gender & Blood Group:</span><div class="border-b-2 border-slate-300 mt-1 font-bold text-slate-900 text-sm md:text-base pb-1">${data.gender}${data.bloodGroup!=='-'?`, ${data.bloodGroup}`:''}</div></div>
+                                <div class="flex flex-col col-span-2"><span class="text-slate-500 font-bold uppercase text-[10px] md:text-[11px] tracking-wider">Residential Address:</span><div class="border-b-2 border-slate-300 mt-1 font-bold text-slate-900 text-sm md:text-base pb-1">${data.address}</div></div>
+                            </div>
+                        </div>
+
+                        <div class="mb-8">
+                            <h3 class="bg-slate-100 p-2 font-bold text-slate-800 border-l-[6px] border-orange-500 mb-5 uppercase text-xs md:text-sm tracking-wide">2. Course Enrollment</h3>
+                            <div class="grid grid-cols-2 gap-y-6 gap-x-10 text-xs md:text-sm">
+                                <div class="flex flex-col"><span class="text-slate-500 font-bold uppercase text-[10px] md:text-[11px] tracking-wider">Program Category:</span><div class="border-b-2 border-slate-300 mt-1 font-bold text-slate-900 text-sm md:text-base pb-1">${data.type === 'Skill' ? 'Professional & AI Skills Academy' : 'Academic Tuition (9-12)'}</div></div>
+                                <div class="flex flex-col"><span class="text-slate-500 font-bold uppercase text-[10px] md:text-[11px] tracking-wider">Course / Standard Selected:</span><div class="border-b-2 border-slate-300 mt-1 font-bold text-orange-600 text-sm md:text-base pb-1">${programName}</div></div>
+                                <div class="flex flex-col"><span class="text-slate-500 font-bold uppercase text-[10px] md:text-[11px] tracking-wider">Medium & Board / Duration:</span><div class="border-b-2 border-slate-300 mt-1 font-bold text-slate-900 text-sm md:text-base pb-1">${dur}</div></div>
+                                <div class="flex flex-col"><span class="text-slate-500 font-bold uppercase text-[10px] md:text-[11px] tracking-wider">Preferred Batch Timing:</span><div class="border-b-2 border-slate-300 mt-1 font-bold text-slate-900 text-sm md:text-base pb-1">${data.batchTiming}</div></div>
+                                ${data.freeOffer && data.freeOffer !== 'None' ? `<div class="flex flex-col col-span-2"><span class="text-slate-500 font-bold uppercase text-[10px] md:text-[11px] tracking-wider">Free Add-on / Offer Applied:</span><div class="border-b-2 border-slate-300 mt-1 font-bold text-orange-600 text-sm md:text-base pb-1">${data.freeOffer}</div></div>` : ''}
+                            </div>
+                        </div>
+
+                        <div class="mb-8">
+                            <h3 class="bg-slate-100 p-2 font-bold text-slate-800 border-l-[6px] border-orange-500 mb-5 uppercase text-xs md:text-sm tracking-wide">3. Parent / Guardian Details</h3>
+                            <div class="grid grid-cols-2 gap-y-6 gap-x-10 text-xs md:text-sm">
+                                <div class="flex flex-col"><span class="text-slate-500 font-bold uppercase text-[10px] md:text-[11px] tracking-wider">Father's / Guardian's Name:</span><div class="border-b-2 border-slate-300 mt-1 font-bold text-slate-900 text-sm md:text-base pb-1">${data.parentName}</div></div>
+                                <div class="flex flex-col"><span class="text-slate-500 font-bold uppercase text-[10px] md:text-[11px] tracking-wider">Parent's Contact Number:</span><div class="border-b-2 border-slate-300 mt-1 font-bold text-slate-900 text-sm md:text-base pb-1">${data.parentPhone !== '-' ? `+91 ${data.parentPhone}` : '-'}</div></div>
+                                <div class="flex flex-col"><span class="text-slate-500 font-bold uppercase text-[10px] md:text-[11px] tracking-wider">Occupation:</span><div class="border-b-2 border-slate-300 mt-1 font-bold text-slate-900 text-sm md:text-base pb-1">${data.parentOccupation}</div></div>
+                                <div class="flex flex-col"><span class="text-slate-500 font-bold uppercase text-[10px] md:text-[11px] tracking-wider">Email Address:</span><div class="border-b-2 border-slate-300 mt-1 font-bold text-slate-900 text-sm md:text-base pb-1">${data.parentEmail}</div></div>
+                            </div>
+                        </div>
+
+                        <div class="border-t-2 border-slate-200 pt-6 mt-12 md:mt-16">
+                            <p class="text-[10px] md:text-[11px] text-slate-500 mb-8 md:mb-10 text-justify font-medium leading-relaxed">
+                                <span class="font-extrabold text-slate-700">Declaration:</span> I hereby declare that the information provided above is true to the best of my knowledge. I agree to abide by the rules and regulations of Udaan Vibrant Academy. I understand that a minimum of 75% attendance is mandatory for certification and academic success.
+                            </p>
+                            <div class="flex justify-between items-end px-2 md:px-6">
+                                <div class="text-center"><div class="w-32 md:w-48 border-b-2 border-slate-400 mb-2"></div><p class="text-[10px] md:text-sm font-bold text-slate-700 uppercase tracking-wide">Student's Signature</p></div>
+                                <div class="text-center"><div class="w-32 md:w-48 border-b-2 border-slate-400 mb-2"></div><p class="text-[10px] md:text-sm font-bold text-slate-700 uppercase tracking-wide">Parent's Signature</p></div>
+                                <div class="text-center"><div class="w-32 md:w-48 border-b-2 border-slate-400 mb-2"></div><p class="text-[10px] md:text-sm font-bold text-slate-700 uppercase tracking-wide">Authorized Signatory</p></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+        }
+
+        // --- ATTENDANCE REPORT TEMPLATE (Printable) ---
+        function AttendanceReportViewTemplate() {
+            const data = state.attendanceReportData;
+            const formattedMonth = new Date(data.month + '-01').toLocaleString('en-IN', { month: 'long', year: 'numeric' });
+
+            const getMonthlyStats = (studentId) => {
+                let hash = 0; for (let i = 0; i < studentId.length; i++) hash += studentId.charCodeAt(i);
+                const totalWorkingDays = 24; 
+                const presentDays = 18 + (hash % 7); 
+                const absentDays = totalWorkingDays - presentDays;
+                const percentage = Math.round((presentDays / totalWorkingDays) * 100);
+                return { totalWorkingDays, presentDays, absentDays, percentage };
+            };
+
+            let totalBatchPercentage = 0;
+            data.students.forEach(std => { totalBatchPercentage += getMonthlyStats(std.id).percentage; });
+            const avgAttendance = data.students.length > 0 ? Math.round(totalBatchPercentage / data.students.length) : 0;
+
+            const presentCount = data.students.filter(s => (data.state[s.id]?.status || 'Present') === 'Present').length;
+            const absentCount = data.students.filter(s => data.state[s.id]?.status === 'Absent').length;
+
+            let stdHTML = data.students.map((std, index) => {
+                const stats = getMonthlyStats(std.id);
+                return `
+                <tr class="border-b border-slate-200 text-xs md:text-sm">
+                    <td class="p-2 md:p-3.5 border-r border-slate-300 text-center font-bold text-slate-500">${index + 1}</td>
+                    <td class="p-2 md:p-3.5 border-r border-slate-300 font-mono font-bold text-slate-600">${std.id}</td>
+                    <td class="p-2 md:p-3.5 border-r border-slate-300 font-extrabold text-slate-900">${std.name}</td>
+                    <td class="p-2 md:p-3.5 border-r border-slate-300 text-center font-bold text-slate-700">${stats.totalWorkingDays}</td>
+                    <td class="p-2 md:p-3.5 border-r border-slate-300 text-center font-extrabold text-green-600">${stats.presentDays}</td>
+                    <td class="p-2 md:p-3.5 border-r border-slate-300 text-center font-bold text-red-500">${stats.absentDays}</td>
+                    <td class="p-2 md:p-3.5 text-center">
+                        <span class="px-2 md:px-3 py-1 rounded-full text-[10px] md:text-xs font-extrabold tracking-wide ${stats.percentage >= 75 ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">${stats.percentage}%</span>
+                    </td>
+                </tr>`;
+            }).join('');
+            if(data.students.length === 0) stdHTML = `<tr><td colspan="7" class="p-8 text-center text-slate-500 font-medium">No students to report for this month.</td></tr>`;
+
+            return `
+            <div class="p-4 sm:p-8 max-w-5xl mx-auto bg-gray-50 min-h-[100dvh] print:p-0 print:bg-white animate-fade-in">
+                <div class="flex flex-col sm:flex-row justify-between items-center mb-6 print:hidden gap-3">
+                    <button onclick="closeAttendanceReport()" class="w-full sm:w-auto px-5 py-2.5 bg-white border border-slate-300 rounded-xl hover:bg-slate-50 font-bold shadow-sm text-slate-700 transition-colors">← Back</button>
+                    <button onclick="window.print()" class="w-full sm:w-auto px-6 py-2.5 bg-orange-500 text-white rounded-xl hover:bg-orange-600 font-bold flex items-center justify-center space-x-2 shadow-sm transition-colors">
+                        <i data-lucide="printer" class="w-4 h-4"></i> <span>Print Report</span>
+                    </button>
+                </div>
+                
+                <div class="overflow-x-auto print:overflow-visible">
+                    <div class="bg-white p-6 md:p-10 rounded-2xl shadow-xl print:shadow-none print:p-6 border-t-[8px] md:border-t-[12px] border-slate-900 border-x border-b min-w-[700px]">
+                        <div class="flex justify-between items-center border-b-[3px] border-slate-800 pb-6 mb-6">
+                            <div class="w-20 h-20 md:w-28 md:h-28 flex items-center justify-center overflow-hidden bg-white">
+                                <img src="${state.logoUrl}" alt="UVA Logo" class="w-full h-full object-contain" />
+                            </div>
+                            <div class="flex-1 text-center px-4">
+                                <h1 class="text-2xl md:text-3xl font-extrabold text-slate-900 tracking-tight">UDAAN VIBRANT ACADEMY</h1>
+                                <p class="text-xs md:text-sm text-slate-600 italic mt-1 font-bold">"Where Learning Takes Flight"</p>
+                                <div class="mt-2 md:mt-3 inline-block bg-slate-900 text-white px-4 md:px-5 py-1.5 rounded-full font-bold uppercase tracking-widest text-[10px] md:text-xs shadow-sm">Monthly Attendance Summary</div>
+                            </div>
+                            <div class="w-20 h-20 md:w-28 md:h-28"></div>
+                        </div>
+                        
+                        <div class="flex justify-between items-center bg-slate-50 border-2 border-slate-200 p-4 md:p-5 rounded-xl mb-8">
+                            <div>
+                                <p class="text-[10px] md:text-[11px] text-slate-500 font-bold uppercase tracking-widest">Batch / Course Name</p>
+                                <p class="text-lg md:text-xl font-extrabold text-orange-600 mt-1">${data.batch}</p>
+                                <p class="text-[10px] md:text-xs font-bold text-slate-500 mt-1">${data.category}</p>
+                            </div>
+                            <div class="text-right">
+                                <p class="text-[10px] md:text-[11px] text-slate-500 font-bold uppercase tracking-widest">Report Month</p>
+                                <p class="text-lg md:text-xl font-extrabold text-slate-900 mt-1">${formattedMonth}</p>
+                            </div>
+                        </div>
+                        
+                        <div class="flex flex-col sm:flex-row space-y-3 sm:space-y-0 sm:space-x-8 mb-6 px-2">
+                            <div class="flex items-center space-x-2"><div class="w-4 h-4 rounded-sm bg-slate-200 border border-slate-300"></div><span class="text-xs md:text-sm font-extrabold text-slate-700">Total Students: ${data.students.length}</span></div>
+                            <div class="flex items-center space-x-2"><div class="w-4 h-4 rounded-sm bg-orange-100 border border-orange-300"></div><span class="text-xs md:text-sm font-extrabold text-slate-700">Average Class Attendance: <span class="${avgAttendance < 75 ? 'text-red-600' : 'text-green-600'}">${avgAttendance}%</span></span></div>
+                        </div>
+                        
+                        <table class="w-full text-left border-collapse border-2 border-slate-300 mb-12">
+                            <thead>
+                                <tr class="bg-slate-100 border-b-2 border-slate-300 text-[10px] md:text-[11px] font-extrabold text-slate-800 uppercase tracking-wider">
+                                    <th class="p-2 md:p-3.5 border-r border-slate-300 text-center w-10 md:w-12">#</th>
+                                    <th class="p-2 md:p-3.5 border-r border-slate-300">Student ID</th>
+                                    <th class="p-2 md:p-3.5 border-r border-slate-300">Student Name</th>
+                                    <th class="p-2 md:p-3.5 border-r border-slate-300 text-center">Total Classes</th>
+                                    <th class="p-2 md:p-3.5 border-r border-slate-300 text-center text-green-700">Present</th>
+                                    <th class="p-2 md:p-3.5 border-r border-slate-300 text-center text-red-700">Absent</th>
+                                    <th class="p-2 md:p-3.5 text-center">Attendance %</th>
+                                </tr>
+                            </thead>
+                            <tbody>${stdHTML}</tbody>
+                        </table>
+                        
+                        <div class="flex justify-between items-end mt-12 md:mt-16 pt-8 border-t-2 border-slate-200">
+                            <div class="text-center"><div class="w-32 md:w-56 border-b-2 border-slate-400 mb-2"></div><p class="text-[10px] md:text-sm font-bold text-slate-700 uppercase tracking-wide">Faculty Signature</p></div>
+                            <div class="text-center"><div class="w-32 md:w-56 border-b-2 border-slate-400 mb-2"></div><p class="text-[10px] md:text-sm font-bold text-slate-700 uppercase tracking-wide">Center Head / Admin</p></div>
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+        }
+
+        // --- WHATSAPP MODAL TEMPLATE ---
+        function WAModalTemplate() {
+            if (!state.waModalConfig) return '';
+            return `
+            <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4 animate-fade-in">
+                <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg border border-slate-200 overflow-hidden flex flex-col max-h-[90dvh]">
+                    <div class="bg-green-500 p-4 text-white flex items-center justify-between flex-shrink-0">
+                        <div class="flex items-center space-x-2">
+                            <i data-lucide="message-circle" class="w-5 h-5"></i><h3 class="font-bold text-base md:text-lg">Send WhatsApp Message</h3>
+                        </div>
+                        <button onclick="closeWhatsApp()" class="text-green-100 hover:text-white transition-colors p-1">
+                            <i data-lucide="x" class="w-5 h-5"></i>
+                        </button>
+                    </div>
+                    <form onsubmit="sendWhatsApp(event)" class="p-4 md:p-6 space-y-4 overflow-y-auto flex-1">
+                        <div>
+                            <label class="block text-xs font-bold text-slate-600 mb-1.5">Recipient Number</label>
+                            <div class="flex items-center border border-slate-300 rounded-xl px-3 py-2 bg-slate-50 focus-within:ring-2 focus-within:ring-green-500 focus-within:border-green-500 transition-all">
+                                <span class="text-slate-500 font-bold mr-2">+91</span>
+                                <input required type="text" value="${state.waModalConfig.phone}" oninput="updateWAPhone(this.value)" class="w-full bg-transparent outline-none font-medium text-slate-800 text-sm md:text-base" />
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-600 mb-1.5 flex justify-between">
+                                <span>Message Content</span><span class="text-slate-400 font-normal">Edit before sending</span>
+                            </label>
+                            <textarea required rows="7" oninput="updateWAMessage(this.value)" class="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-green-500 outline-none text-sm text-slate-700 leading-relaxed transition-all resize-none shadow-inner bg-slate-50">${state.waModalConfig.message}</textarea>
+                        </div>
+                        <div class="flex flex-col sm:flex-row justify-end space-y-3 sm:space-y-0 sm:space-x-3 pt-2">
+                            <button type="button" onclick="closeWhatsApp()" class="w-full sm:w-auto px-5 py-3 md:py-2.5 text-slate-600 font-bold hover:bg-slate-100 rounded-xl transition-colors text-sm">Cancel</button>
+                            <button type="submit" class="w-full sm:w-auto px-6 py-3 md:py-2.5 bg-green-500 text-white font-bold rounded-xl hover:bg-green-600 shadow-md transition-all flex items-center justify-center space-x-2 text-sm">
+                                <span>Send via WhatsApp</span><i data-lucide="send" class="w-4 h-4"></i>
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>`;
+        }
+
+        // Initial Setup & Render
+        window.onload = () => {
+            setupPWA();
+            render();
+        };
+
+    </script>
+</body>
+</html>
