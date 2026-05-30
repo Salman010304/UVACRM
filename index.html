@@ -5,7 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="theme-color" content="#0f172a">
     <title>Udaan Vibrant Academy ERP</title>
+    
+    <!-- PWA Manifest & iOS Apple Touch Icon Links -->
     <link id="manifest-link" rel="manifest">
+    <link id="apple-icon" rel="apple-touch-icon">
     
     <!-- Firebase SDK (Compat Version for Vanilla JS) -->
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
@@ -390,7 +393,11 @@
         window.handleLogoUpload = (input) => {
             if (input.files && input.files[0]) {
                 const reader = new FileReader();
-                reader.onload = (e) => { state.logoUrl = e.target.result; render(); };
+                reader.onload = (e) => { 
+                    state.logoUrl = e.target.result; 
+                    setupPWA(); // Re-trigger manifest generation to update dynamic icon
+                    render(); 
+                };
                 reader.readAsDataURL(input.files[0]);
             }
         };
@@ -499,6 +506,12 @@
         };
 
         function setupPWA() {
+            // Setup iOS Dynamic Apple Touch Icon
+            const appleIcon = document.getElementById('apple-icon');
+            if (appleIcon) {
+                appleIcon.href = state.logoUrl;
+            }
+
             const manifest = {
                 name: "UVA ERP",
                 short_name: "UVA ERP",
@@ -508,8 +521,8 @@
                 background_color: "#f8fafc",
                 theme_color: "#0f172a",
                 icons: [
-                    { src: defaultLogo, sizes: "192x192", type: "image/svg+xml", purpose: "any maskable" },
-                    { src: defaultLogo, sizes: "512x512", type: "image/svg+xml", purpose: "any maskable" }
+                    { src: state.logoUrl, sizes: "192x192", type: "image/svg+xml", purpose: "any maskable" },
+                    { src: state.logoUrl, sizes: "512x512", type: "image/svg+xml", purpose: "any maskable" }
                 ]
             };
             
