@@ -71,10 +71,10 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, signInWithCustomToken, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // Firebase Configuration (Using your provided config)
+        // Firebase Configuration
         const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
             apiKey: "AIzaSyDvwI0ImHdQhfyC1kchvg5APLdrvan6L54",
             authDomain: "uvacrm-b417f.firebaseapp.com",
@@ -140,6 +140,67 @@
             editingStudentData: null
         };
 
+        let unsubSnapshot = null;
+
+        // Initialize App and Setup Listeners
+        async function initApp() {
+            try {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    // Using normal email/password flow so no anonymous signin here
+                    // Wait for the auth state change listener to resolve
+                }
+            } catch (error) {
+                console.error("Auth init failed:", error);
+                state.isAuthLoading = false;
+                render();
+            }
+        }
+
+        onAuthStateChanged(auth, user => {
+            state.isAuthLoading = false;
+            state.user = user;
+            if (user && user.uid !== 'bypassed_user') {
+                setupRealtimeSync(user.uid);
+            } else if(user && user.uid === 'bypassed_user') {
+                 window.loadDataFromCloud('bypassed_user');
+            } else {
+                if (unsubSnapshot) {
+                    unsubSnapshot();
+                    unsubSnapshot = null;
+                }
+                render();
+            }
+        });
+
+        // Setup real-time listener for cloud sync
+        function setupRealtimeSync(uid) {
+             const docRef = doc(db, 'artifacts', appId, 'users', uid, 'data', 'erp_state');
+             
+             if (unsubSnapshot) unsubSnapshot(); // Clear existing
+             
+             unsubSnapshot = onSnapshot(docRef, (docSnap) => {
+                 if (docSnap.exists()) {
+                     const data = docSnap.data();
+                     // We merge data, prioritizing local edits if they are happening, 
+                     // but for this simple app, overwriting is fine for real-time sync across devices
+                     state.appIconUrl = data.appIconUrl || defaultAppIcon;
+                     state.formLogoUrl = data.formLogoUrl || defaultFormLogo;
+                     state.adminSignUrl = data.adminSignUrl || null;
+                     state.inquiries = data.inquiries || [];
+                     state.students = data.students || [];
+                     state.attState = data.attState || {};
+                     console.log("Real-time update received from Cloud");
+                 }
+                 render();
+             }, (error) => {
+                 console.error("Real-time sync error:", error);
+                 // We don't render on error to avoid flashing error states if it's transient
+             });
+        }
+
+
         let syncTimeout;
         window.saveDataToCloud = async () => {
             const dataToSave = {
@@ -159,17 +220,17 @@
 
             if (!state.user) return;
 
-            // Save to Firestore seamlessly in the background
+            // Debounce the save to prevent hammering Firestore
             clearTimeout(syncTimeout);
             syncTimeout = setTimeout(async () => {
                 try {
-                    const docRef = doc(db, 'artifacts', appId, 'users', state.user.uid);
+                    const docRef = doc(db, 'artifacts', appId, 'users', state.user.uid, 'data', 'erp_state');
                     await setDoc(docRef, dataToSave, { merge: true });
                     console.log("Synced to Cloud Successfully");
                 } catch (e) {
                     console.error("Cloud Sync Failed", e);
                 }
-            }, 1000);
+            }, 500); // 500ms debounce
         };
 
         window.loadDataFromCloud = async (uid) => {
@@ -180,35 +241,17 @@
                         const data = JSON.parse(stored);
                         Object.assign(state, data);
                     }
+                    render();
                 } else {
-                    const docRef = doc(db, 'artifacts', appId, 'users', uid);
-                    const docSnap = await getDoc(docRef);
-                    if (docSnap.exists()) {
-                        const data = docSnap.data();
-                        state.appIconUrl = data.appIconUrl || defaultAppIcon;
-                        state.formLogoUrl = data.formLogoUrl || defaultFormLogo;
-                        state.adminSignUrl = data.adminSignUrl || null;
-                        state.inquiries = data.inquiries || [];
-                        state.students = data.students || [];
-                        state.attState = data.attState || {};
-                    }
+                    // For logged-in users, the real-time listener (onSnapshot) handles loading
+                    // But we can trigger an initial render here just in case
+                    render();
                 }
-                render();
             } catch (e) {
                 console.error("Failed to load from Cloud", e);
                 render();
             }
         };
-
-        onAuthStateChanged(auth, user => {
-            state.isAuthLoading = false;
-            state.user = user;
-            if (user) {
-                window.loadDataFromCloud(user.uid);
-            } else {
-                render();
-            }
-        });
 
         function render() {
             document.getElementById('root').innerHTML = AppTemplate();
@@ -223,9 +266,11 @@
             const email = fd.get('email');
             const password = fd.get('password');
             state.loginError = '';
+            state.isAuthLoading = true; // Show loading
             render(); 
 
             signInWithEmailAndPassword(auth, email, password).catch(error => {
+                state.isAuthLoading = false;
                 state.loginError = error.message;
                 render();
             });
@@ -237,7 +282,7 @@
         };
 
         window.handleLogout = () => {
-            if(state.user.uid === 'bypassed_user') {
+            if(state.user && state.user.uid === 'bypassed_user') {
                 state.user = null;
                 render();
             } else {
@@ -495,7 +540,7 @@
         window.toggleAttendance = (id, status) => {
             if (!state.attState[id]) state.attState[id] = { status: 'Present', reason: '' };
             state.attState[id].status = status;
-            window.saveDataToCloud();
+            window.saveDataToCloud(); // Save immediately for Real-time UX
             render();
         };
 
@@ -1529,7 +1574,7 @@
                             <div class="flex justify-between items-end px-2 md:px-6">
                                 <div class="text-center group relative cursor-pointer">
                                     <label>
-                                        <input type="file" accept="image/*" onchange="handleImageUpload(this, 'studentSignUrl', '${data.id}')" class="hidden print:hidden" />
+                                        <input type="file" accept="image/*" onchange="window.handleImageUpload(this, 'studentSignUrl', '${data.id}')" class="hidden print:hidden" />
                                         <div class="w-32 md:w-48 border-b-2 border-slate-400 mb-2 h-12 flex items-end justify-center">
                                             ${data.studentSignUrl ? `<img src="${data.studentSignUrl}" class="max-h-12 object-contain" />` : `<span class="text-xs text-slate-300 print:hidden font-medium">Click to Sign</span>`}
                                         </div>
@@ -1538,7 +1583,7 @@
                                 </div>
                                 <div class="text-center group relative cursor-pointer">
                                     <label>
-                                        <input type="file" accept="image/*" onchange="handleImageUpload(this, 'parentSignUrl', '${data.id}')" class="hidden print:hidden" />
+                                        <input type="file" accept="image/*" onchange="window.handleImageUpload(this, 'parentSignUrl', '${data.id}')" class="hidden print:hidden" />
                                         <div class="w-32 md:w-48 border-b-2 border-slate-400 mb-2 h-12 flex items-end justify-center">
                                             ${data.parentSignUrl ? `<img src="${data.parentSignUrl}" class="max-h-12 object-contain" />` : `<span class="text-xs text-slate-300 print:hidden font-medium">Click to Sign</span>`}
                                         </div>
@@ -1547,7 +1592,7 @@
                                 </div>
                                 <div class="text-center group relative cursor-pointer">
                                     <label>
-                                        <input type="file" accept="image/*" onchange="handleImageUpload(this, 'adminSignUrl')" class="hidden print:hidden" />
+                                        <input type="file" accept="image/*" onchange="window.handleImageUpload(this, 'adminSignUrl')" class="hidden print:hidden" />
                                         <div class="w-32 md:w-48 border-b-2 border-slate-400 mb-2 h-12 flex items-end justify-center">
                                             ${state.adminSignUrl ? `<img src="${state.adminSignUrl}" class="max-h-12 object-contain" />` : `<span class="text-xs text-slate-300 print:hidden font-medium">Click to Sign</span>`}
                                         </div>
@@ -1656,7 +1701,7 @@
                         <div class="flex justify-between items-end mt-12 md:mt-16 pt-8 border-t-2 border-slate-200">
                             <div class="text-center group relative cursor-pointer">
                                 <label>
-                                    <input type="file" accept="image/*" onchange="handleImageUpload(this, 'adminSignUrl')" class="hidden print:hidden" />
+                                    <input type="file" accept="image/*" onchange="window.handleImageUpload(this, 'adminSignUrl')" class="hidden print:hidden" />
                                     <div class="w-32 md:w-56 border-b-2 border-slate-400 mb-2 h-12 flex items-end justify-center">
                                         ${state.adminSignUrl ? `<img src="${state.adminSignUrl}" class="max-h-12 object-contain" />` : `<span class="text-xs text-slate-300 print:hidden font-medium">Click to Sign</span>`}
                                     </div>
@@ -1665,7 +1710,7 @@
                             </div>
                             <div class="text-center group relative cursor-pointer">
                                 <label>
-                                    <input type="file" accept="image/*" onchange="handleImageUpload(this, 'adminSignUrl')" class="hidden print:hidden" />
+                                    <input type="file" accept="image/*" onchange="window.handleImageUpload(this, 'adminSignUrl')" class="hidden print:hidden" />
                                     <div class="w-32 md:w-56 border-b-2 border-slate-400 mb-2 h-12 flex items-end justify-center">
                                         ${state.adminSignUrl ? `<img src="${state.adminSignUrl}" class="max-h-12 object-contain" />` : `<span class="text-xs text-slate-300 print:hidden font-medium">Click to Sign</span>`}
                                     </div>
@@ -1717,10 +1762,7 @@
             </div>`;
         }
 
-        window.onload = () => {
-            setupPWA();
-            render();
-        };
+        initApp();
 
     </script>
 </body>
