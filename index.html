@@ -14,6 +14,14 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <!-- html2pdf.js for High-Fidelity PDF Generation -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <!-- Google Fonts for Premium Look -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Montserrat:wght@500;700;800;900&display=swap" rel="stylesheet">
+
     <style>
         @keyframes fadeIn {
             from { opacity: 0; transform: translateY(10px); }
@@ -63,6 +71,62 @@
             .print\:bg-white { background-color: white !important; }
             /* Reset mobile margins for print */
             main { margin-bottom: 0 !important; }
+        }
+
+        /* --- Premium A4 Document Styles --- */
+        .a4-wrapper {
+            width: 100%;
+            overflow-x: auto;
+            display: flex;
+            justify-content: center;
+            padding: 20px 0;
+        }
+        .a4-document {
+            width: 794px !important; /* Exact A4 width at 96dpi */
+            min-width: 794px !important;
+            max-width: 794px !important;
+            height: 1123px !important; /* Exact A4 height at 96dpi */
+            min-height: 1123px !important;
+            max-height: 1123px !important;
+            background-color: white;
+            position: relative;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+            font-family: 'Inter', sans-serif;
+            color: #1e293b;
+            overflow: hidden;
+            box-sizing: border-box;
+        }
+        .pdf-label {
+            font-size: 0.55rem;
+            font-weight: 800;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.15rem;
+        }
+        .pdf-value {
+            font-size: 0.75rem;
+            font-weight: 800;
+            color: #0f172a;
+            border-bottom: 1px solid #cbd5e1;
+            padding-bottom: 0.2rem;
+            min-height: 18px;
+            width: 100%;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .watermark-logo {
+            position: absolute; 
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            opacity: 0.04; 
+            pointer-events: none;
+            width: 500px; 
+            height: 500px;
+            object-fit: contain;
+            z-index: 0;
+            filter: grayscale(100%);
         }
     </style>
 </head>
@@ -118,7 +182,9 @@
             activeTab: 'dashboard',
             appIconUrl: defaultAppIcon,
             formLogoUrl: defaultFormLogo,
+            formLogoSize: 80,
             adminSignUrl: null, 
+            viewingImage: null,
             inquiries: [],
             students: [],
             showNewInquiryForm: false,
@@ -126,12 +192,13 @@
             enrollingLead: null,
             receiptData: null,
             attendanceReportData: null,
+            individualReportData: null,
             waModalConfig: null,
             attFilterCategory: 'All',
             attSelectedBatch: '',
             attDate: new Date().toISOString().split('T')[0],
             attReportMonth: new Date().toISOString().slice(0, 7),
-            attState: {},
+            attState: {}, // Structure: { 'YYYY-MM-DD': { 'UVA-123': { status: 'Present', reason: '' } } }
             admSearchQuery: '',
             admProgramFilter: 'All',
             admCourseFilter: 'All',
@@ -152,7 +219,7 @@
             if(window.lucide) lucide.createIcons();
             
             const mainContent = document.getElementById('main-scroll-area');
-            if (mainContent && !state.receiptData && !state.attendanceReportData) mainContent.scrollTop = 0;
+            if (mainContent && !state.receiptData && !state.attendanceReportData && !state.individualReportData) mainContent.scrollTop = 0;
         }
 
         // Render immediately so the app shows the loader gracefully
@@ -231,10 +298,18 @@
                      const data = docSnap.data();
                      state.appIconUrl = data.appIconUrl || defaultAppIcon;
                      state.formLogoUrl = data.formLogoUrl || defaultFormLogo;
+                     state.formLogoSize = data.formLogoSize || 80;
                      state.adminSignUrl = data.adminSignUrl || null;
                      state.inquiries = data.inquiries || [];
                      state.students = data.students || [];
-                     state.attState = data.attState || {};
+                     
+                     // Safe sync for updated attendance format (checks if old format is present and migrates to today's date safely)
+                     if (data.attState && Object.keys(data.attState).length > 0 && !Object.keys(data.attState)[0].includes('-')) {
+                         state.attState = {};
+                         state.attState[new Date().toISOString().split('T')[0]] = data.attState;
+                     } else {
+                         state.attState = data.attState || {};
+                     }
                  }
                  render();
              }, (error) => {
@@ -247,6 +322,7 @@
             const dataToSave = {
                 appIconUrl: state.appIconUrl,
                 formLogoUrl: state.formLogoUrl,
+                formLogoSize: state.formLogoSize || 80,
                 adminSignUrl: state.adminSignUrl || null,
                 inquiries: state.inquiries,
                 students: state.students,
@@ -277,6 +353,14 @@
                     const stored = localStorage.getItem('uva_erp_data');
                     if (stored) {
                         const data = JSON.parse(stored);
+                        
+                        // Migration guard for old attendance structures offline
+                        if (data.attState && Object.keys(data.attState).length > 0 && !Object.keys(data.attState)[0].includes('-')) {
+                             const migratedAtt = {};
+                             migratedAtt[new Date().toISOString().split('T')[0]] = data.attState;
+                             data.attState = migratedAtt;
+                        }
+
                         Object.assign(state, data);
                     }
                     render();
@@ -325,6 +409,7 @@
             state.activeTab = tab;
             state.receiptData = null;
             state.attendanceReportData = null;
+            state.individualReportData = null;
             render();
         };
 
@@ -336,6 +421,8 @@
                 message = `Hello ${name},\n\nWe noticed your interest in the *${courseName}* at Udaan Vibrant Academy! 🌟\n\nSeats are filling up fast for our upcoming batch. Do you have any questions?\n\nLet's build your future together! 🚀`;
             } else if (type === 'absent_alert') {
                 message = `Dear Parent/Student,\n\nNotice from UVA: ${name} was marked ABSENT today for the ${courseName} batch. Regular attendance is crucial for success!\n\nRegards,\nUdaan Vibrant Academy`;
+            } else if (type === 'admission_form') {
+                message = `Dear ${name} / Parent,\n\nWelcome to *Udaan Vibrant Academy (UVA)*! 🎉\n\nYour admission for the ${courseName} program is successfully confirmed.\n\nPlease find your detailed Admission Form PDF attached to this message (downloaded to your device).\n\nLet's build your future together! 🚀`;
             }
             state.waModalConfig = { phone, message };
             render();
@@ -352,6 +439,16 @@
             const whatsappUrl = `https://wa.me/91${state.waModalConfig.phone}?text=${encodedMessage}`;
             window.open(whatsappUrl, '_blank');
             window.closeWhatsApp();
+        };
+
+        window.shareFormWhatsApp = () => {
+            // First trigger the PDF download
+            window.generatePremiumPDF();
+            // Then wait just a second for it to initiate and open WhatsApp modal so user can attach it
+            setTimeout(() => {
+                const courseName = state.receiptData.type === 'Skill' ? state.receiptData.course : state.receiptData.std;
+                window.openWhatsApp(state.receiptData.phone, 'admission_form', state.receiptData.name, courseName);
+            }, 1000);
         };
 
         // --- INQUIRY ACTIONS ---
@@ -442,7 +539,10 @@
                 dob: fd.get('dob') || 'Not Provided',
                 gender: fd.get('gender') || 'Not Specified',
                 bloodGroup: fd.get('bloodGroup') || '-',
-                address: fd.get('address') || 'Not Provided',
+                address: fd.get('address') || '',
+                city: fd.get('city') || '',
+                state: fd.get('state') || 'Gujarat',
+                pincode: fd.get('pincode') || '',
                 batchTiming: fd.get('batchTiming') || 'To be assigned',
                 parentName: fd.get('parentName') || 'Not Provided',
                 parentPhone: fd.get('parentPhone') || '-',
@@ -451,7 +551,10 @@
                 freeOffer: fd.get('freeOffer') || 'None',
                 photoUrl: null,
                 studentSignUrl: null,
-                parentSignUrl: null
+                parentSignUrl: null,
+                docAadhaar: null,
+                docMarksheet: null,
+                docLeavingCert: null
             };
             
             state.students.push(newStudent);
@@ -498,6 +601,9 @@
                     batchTiming: fd.get('batchTiming') || state.students[index].batchTiming,
                     freeOffer: fd.get('freeOffer') || state.students[index].freeOffer,
                     address: fd.get('address') || state.students[index].address,
+                    city: fd.get('city') || state.students[index].city,
+                    state: fd.get('state') || state.students[index].state,
+                    pincode: fd.get('pincode') || state.students[index].pincode,
                     parentName: fd.get('parentName') || state.students[index].parentName,
                     parentPhone: fd.get('parentPhone') || state.students[index].parentPhone,
                     parentOccupation: fd.get('parentOccupation') || state.students[index].parentOccupation,
@@ -518,6 +624,35 @@
             }
         };
 
+        window.updateLogoSize = (val) => {
+            state.formLogoSize = val;
+            window.saveDataToCloud();
+            render();
+        };
+
+        window.removeAttachment = async (type, studentId = null) => {
+            if(confirm("Are you sure you want to remove this attachment?")) {
+                if(studentId) {
+                    const std = state.students.find(s => s.id === studentId);
+                    if(std) std[type] = null;
+                } else {
+                    state[type] = null;
+                }
+                await window.saveDataToCloud();
+                render();
+            }
+        };
+
+        window.viewAttachment = (url) => {
+            state.viewingImage = url;
+            render();
+        };
+
+        window.closeViewAttachment = () => {
+            state.viewingImage = null;
+            render();
+        };
+
         window.handleImageUpload = (input, type, studentId = null) => {
             if (input.files && input.files[0]) {
                 const reader = new FileReader();
@@ -526,7 +661,7 @@
                     if (studentId) {
                         const std = state.students.find(s => s.id === studentId);
                         if (std) {
-                            std[type] = base64; // photoUrl, studentSignUrl, parentSignUrl
+                            std[type] = base64; // photoUrl, studentSignUrl, parentSignUrl, docAadhaar, etc.
                         }
                     } else {
                         state[type] = base64; // formLogoUrl, appIconUrl, adminSignUrl
@@ -541,10 +676,8 @@
 
         // --- ATTENDANCE ACTIONS ---
         window.resetAttState = (studentsToReset) => {
-            state.attState = {};
-            studentsToReset.forEach(s => {
-                state.attState[s.id] = { status: 'Present', reason: '' };
-            });
+            // We no longer auto-fill 'Present'. We just ensure the date object exists.
+            if (!state.attState[state.attDate]) state.attState[state.attDate] = {};
         };
 
         window.updateAttFilter = (val) => {
@@ -555,14 +688,11 @@
 
         window.updateAttBatch = (val) => {
             state.attSelectedBatch = val;
-            const currentStudents = getFilteredStudents();
-            window.resetAttState(currentStudents);
             render();
         };
 
         window.updateAttDate = (val) => {
             state.attDate = val;
-            window.resetAttState(getFilteredStudents());
             render();
         };
 
@@ -572,30 +702,43 @@
         };
 
         window.toggleAttendance = (id, status) => {
-            if (!state.attState[id]) state.attState[id] = { status: 'Present', reason: '' };
-            state.attState[id].status = status;
+            if (!state.attState[state.attDate]) state.attState[state.attDate] = {};
+            if (!state.attState[state.attDate][id]) state.attState[state.attDate][id] = { status: null, reason: '' };
+            
+            if (state.attState[state.attDate][id].status === status) {
+                // If user clicks the exact same button again, unselect it.
+                state.attState[state.attDate][id].status = null;
+            } else {
+                // Otherwise assign the selected status
+                state.attState[state.attDate][id].status = status;
+            }
             render();
         };
 
         window.updateAttReason = (id, val) => {
-            if (state.attState[id]) state.attState[id].reason = val;
+            if (state.attState[state.attDate] && state.attState[state.attDate][id]) {
+                state.attState[state.attDate][id].reason = val;
+            }
         };
 
         window.clearAttendance = () => {
-            if (confirm("Are you sure you want to clear/delete the attendance marks for this batch?")) {
+            if (confirm("Are you sure you want to completely clear/unmark all attendance for this batch on the selected date?")) {
                 const currentStudents = getFilteredStudents();
-                currentStudents.forEach(s => {
-                    delete state.attState[s.id];
-                });
+                if (state.attState[state.attDate]) {
+                    currentStudents.forEach(s => {
+                        delete state.attState[state.attDate][s.id];
+                    });
+                }
                 render();
             }
         };
 
         window.notifyAbsentees = () => {
             const filtered = getFilteredStudents();
-            const absentees = filtered.filter(s => state.attState[s.id]?.status === 'Absent');
+            const dateData = state.attState[state.attDate] || {};
+            const absentees = filtered.filter(s => dateData[s.id]?.status === 'Absent');
             if(absentees.length === 0) {
-                alert("No absentees to notify!"); return;
+                alert("No explicitly marked absentees to notify for this date!"); return;
             }
             window.openWhatsApp(absentees[0].phone, 'absent_alert', absentees[0].name, state.attSelectedBatch);
         };
@@ -612,6 +755,49 @@
             render();
         };
         window.closeAttendanceReport = () => { state.attendanceReportData = null; render(); };
+
+        window.openIndividualReport = (id) => {
+            state.individualReportData = {
+                student: state.students.find(s => s.id === id),
+                month: state.attReportMonth,
+                attState: state.attState
+            };
+            render();
+        };
+        window.closeIndividualReport = () => { state.individualReportData = null; render(); };
+
+        // --- PDF GENERATION LOGIC ---
+        window.generatePremiumPDF = () => {
+            const btn = document.getElementById('pdf-download-btn');
+            const originalText = btn.innerHTML;
+            btn.innerHTML = `<i data-lucide="loader" class="w-4 h-4 mr-2 animate-spin"></i> Generating PDF...`;
+            if(window.lucide) lucide.createIcons();
+
+            const element = document.getElementById('premium-admission-document');
+            
+            // Scroll to top to prevent html2canvas clipping bugs
+            window.scrollTo(0, 0);
+
+            let pdfName = `UVA_Document.pdf`;
+            if (state.receiptData) pdfName = `UVA_Admission_${state.receiptData.id}.pdf`;
+            else if (state.attendanceReportData) pdfName = `UVA_Batch_Report_${state.attendanceReportData.month}.pdf`;
+            else if (state.individualReportData) pdfName = `UVA_Student_Report_${state.individualReportData.student.id}.pdf`;
+
+            const opt = {
+                margin:       0,
+                filename:     pdfName,
+                image:        { type: 'jpeg', quality: 1.0 },
+                html2canvas:  { scale: 2, useCORS: true, scrollY: 0 },
+                jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+            };
+
+            setTimeout(() => {
+                html2pdf().set(opt).from(element).save().then(() => {
+                    btn.innerHTML = originalText;
+                    if(window.lucide) lucide.createIcons();
+                });
+            }, 300);
+        };
 
         // --- PWA INSTALL ACTIONS ---
         let deferredPrompt;
@@ -718,6 +904,20 @@
                 </main>
                 ${MobileNavTemplate()}
                 ${WAModalTemplate()}
+                ${ImageViewerTemplate()}
+            </div>`;
+        }
+
+        function ImageViewerTemplate() {
+            if (!state.viewingImage) return '';
+            return `
+            <div class="fixed inset-0 bg-slate-900/90 backdrop-blur-sm flex items-center justify-center z-[200] p-4 animate-fade-in print:hidden">
+                <div class="relative w-full max-w-4xl flex flex-col items-center">
+                    <button onclick="window.closeViewAttachment()" class="absolute -top-12 right-0 text-white hover:text-orange-500 bg-slate-800 rounded-full p-2 transition-colors shadow-lg">
+                        <i data-lucide="x" class="w-6 h-6"></i>
+                    </button>
+                    <img src="${state.viewingImage}" class="max-w-full max-h-[85vh] object-contain rounded-xl shadow-2xl border-4 border-slate-800" />
+                </div>
             </div>`;
         }
 
@@ -909,6 +1109,7 @@
         function MainContentTemplate() {
             if (state.receiptData) return ReceiptViewTemplate();
             if (state.attendanceReportData) return AttendanceReportViewTemplate();
+            if (state.individualReportData) return IndividualReportTemplate();
             
             switch (state.activeTab) {
                 case 'dashboard': return DashboardTemplate();
@@ -1213,7 +1414,12 @@
                                     <div class="sm:col-span-2"><label class="block text-xs font-bold text-slate-600 mb-1">Preferred Batch</label><input type="text" name="batchTiming" placeholder="e.g. 4 PM - 6 PM" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 text-sm font-medium text-slate-700" /></div>
                                     <div class="sm:col-span-2"><label class="block text-xs font-bold text-slate-600 mb-1">Free Add-on Course (Offer)</label><input type="text" name="freeOffer" placeholder="e.g. Soft Skills (Free) or None" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 text-sm font-medium text-slate-700" /></div>
                                 </div>
-                                <div><label class="block text-xs font-bold text-slate-600 mb-1">Residential Address</label><textarea rows="2" name="address" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 text-sm font-medium text-slate-700"></textarea></div>
+                                <div><label class="block text-xs font-bold text-slate-600 mb-1">Residential Address</label><textarea rows="2" name="address" placeholder="Flat/House No, Area, Street" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 text-sm font-medium text-slate-700"></textarea></div>
+                                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-5 mt-2">
+                                    <div><label class="block text-xs font-bold text-slate-600 mb-1">City / District</label><input type="text" name="city" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 text-sm font-medium text-slate-700" /></div>
+                                    <div><label class="block text-xs font-bold text-slate-600 mb-1">State</label><input type="text" name="state" value="Gujarat" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 text-sm font-medium text-slate-700" /></div>
+                                    <div><label class="block text-xs font-bold text-slate-600 mb-1">Pin Code</label><input type="text" name="pincode" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 text-sm font-medium text-slate-700" /></div>
+                                </div>
                             </div>
                             <!-- Parent Details -->
                             <div class="space-y-4 md:space-y-5">
@@ -1376,6 +1582,11 @@
                                     <div class="sm:col-span-2"><label class="block text-xs font-bold text-slate-600 mb-1">Free Add-on Course (Offer)</label><input type="text" name="freeOffer" value="${std.freeOffer || 'None'}" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 text-sm font-medium text-slate-700" /></div>
                                 </div>
                                 <div><label class="block text-xs font-bold text-slate-600 mb-1">Residential Address</label><textarea rows="2" name="address" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 text-sm font-medium text-slate-700">${std.address}</textarea></div>
+                                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-5 mt-2">
+                                    <div><label class="block text-xs font-bold text-slate-600 mb-1">City / District</label><input type="text" name="city" value="${std.city || ''}" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 text-sm font-medium text-slate-700" /></div>
+                                    <div><label class="block text-xs font-bold text-slate-600 mb-1">State</label><input type="text" name="state" value="${std.state || 'Gujarat'}" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 text-sm font-medium text-slate-700" /></div>
+                                    <div><label class="block text-xs font-bold text-slate-600 mb-1">Pin Code</label><input type="text" name="pincode" value="${std.pincode || ''}" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 text-sm font-medium text-slate-700" /></div>
+                                </div>
                             </div>
                             <!-- Parent Details -->
                             <div class="space-y-4 md:space-y-5">
@@ -1408,9 +1619,16 @@
             
             let displayHTML = '';
             if (state.attSelectedBatch) {
+                const dateData = state.attState[state.attDate] || {};
+                let presentCount = 0;
+                let absentCount = 0;
+
                 let stdRows = filteredStudents.map(std => {
-                    const currentStatus = state.attState[std.id]?.status || 'Present';
-                    const currentReason = state.attState[std.id]?.reason || '';
+                    const currentStatus = dateData[std.id]?.status || null; // Unmarked default
+                    const currentReason = dateData[std.id]?.reason || '';
+                    
+                    if (currentStatus === 'Present') presentCount++;
+                    if (currentStatus === 'Absent') absentCount++;
                     
                     let reasonHTML = '';
                     if (currentStatus === 'Absent') {
@@ -1433,7 +1651,12 @@
                             <div class="w-10 h-10 md:w-12 md:h-12 bg-slate-200 rounded-full flex items-center justify-center text-slate-600 font-extrabold text-lg md:text-xl shadow-inner border border-slate-300 flex-shrink-0">${std.name.charAt(0)}</div>
                             <div class="truncate">
                                 <p class="font-extrabold text-slate-800 text-base md:text-lg truncate">${std.name}</p>
-                                <p class="text-xs md:text-sm font-mono text-slate-500 font-bold mt-0.5">ID: ${std.id}</p>
+                                <div class="flex items-center mt-0.5 space-x-3">
+                                    <p class="text-xs md:text-sm font-mono text-slate-500 font-bold">ID: ${std.id}</p>
+                                    <button onclick="window.openIndividualReport('${std.id}')" class="text-[10px] md:text-xs text-blue-600 hover:text-blue-800 font-bold flex items-center bg-blue-50 px-2 py-0.5 rounded border border-blue-200 transition-colors">
+                                        <i data-lucide="calendar-days" class="w-3 h-3 mr-1"></i> Individual Report
+                                    </button>
+                                </div>
                             </div>
                         </div>
                         <div class="flex flex-col sm:flex-row items-end sm:items-center gap-2 md:gap-3 w-full xl:w-auto mt-2 xl:mt-0">
@@ -1453,21 +1676,21 @@
                     <div class="p-4 md:p-6 bg-slate-900 flex flex-col sm:flex-row sm:justify-between sm:items-center text-white gap-4">
                         <div>
                             <h3 class="font-bold text-lg md:text-xl text-orange-400">${state.attSelectedBatch}</h3>
-                            <p class="text-slate-300 text-xs md:text-sm font-medium mt-1">${filteredStudents.length} Students | Date: ${new Date(state.attDate).toLocaleDateString('en-IN')}</p>
+                            <p class="text-slate-300 text-xs md:text-sm font-medium mt-1">Total: ${filteredStudents.length} | Marked Present: <span class="text-green-400">${presentCount}</span> | Marked Absent: <span class="text-red-400">${absentCount}</span></p>
                         </div>
                         <div class="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-3 w-full sm:w-auto">
                             <button onclick="window.openAttendanceReport()" class="w-full sm:w-auto bg-slate-700 text-white border border-slate-600 px-4 py-2.5 rounded-xl text-sm font-bold hover:bg-slate-600 flex items-center justify-center transition-colors shadow-sm">
-                                <i data-lucide="file-text" class="w-4 h-4 mr-2"></i> Report PDF
+                                <i data-lucide="file-text" class="w-4 h-4 mr-2"></i> Batch Report
                             </button>
                             <button onclick="window.notifyAbsentees()" class="w-full sm:w-auto bg-orange-500 text-white px-4 py-2.5 rounded-xl text-sm font-bold hover:bg-orange-600 flex items-center justify-center transition-colors shadow-sm">
-                                <i data-lucide="message-circle" class="w-4 h-4 mr-2"></i> Notify
+                                <i data-lucide="message-circle" class="w-4 h-4 mr-2"></i> Notify Absentees
                             </button>
                         </div>
                     </div>
                     <div class="p-2 md:p-4">${stdRows}</div>
                     <div class="p-4 md:p-5 bg-slate-50 border-t flex flex-col sm:flex-row justify-between items-center gap-4">
                         <button onclick="window.clearAttendance()" class="w-full sm:w-auto px-4 py-3 md:py-3 bg-red-50 text-red-600 font-bold rounded-xl hover:bg-red-100 transition-colors text-sm md:text-base flex items-center justify-center">
-                            <i data-lucide="eraser" class="w-4 h-4 md:w-5 md:h-5 mr-1 md:mr-2"></i> <span class="hidden sm:inline">Clear Form</span><span class="sm:hidden">Clear</span>
+                            <i data-lucide="eraser" class="w-4 h-4 md:w-5 md:h-5 mr-1 md:mr-2"></i> <span class="hidden sm:inline">Clear Day</span><span class="sm:hidden">Clear</span>
                         </button>
                         <button onclick="window.saveDataToCloud(); alert('Attendance Saved Successfully!')" class="w-full sm:w-auto px-6 py-3 md:py-3 bg-slate-900 text-white font-bold rounded-xl hover:bg-slate-800 shadow-lg flex items-center justify-center transition-colors text-sm md:text-base">
                             <i data-lucide="check-square" class="w-4 h-4 md:w-5 md:h-5 mr-2"></i> Save Record
@@ -1526,117 +1749,298 @@
         // --- RECEIPT TEMPLATE (Printable) ---
         function ReceiptViewTemplate() {
             const data = state.receiptData;
-            const programName = data.type === 'Skill' ? data.course : `${data.std} Commerce`;
-            const dur = data.type === 'Tuition' ? `${data.board} | ${data.medium}` : SKILL_COURSES[data.course]?.duration;
+            const programName = data.type === 'Skill' ? data.course : `${data.std} ${data.board}`;
+            const dur = data.type === 'Tuition' ? `${data.medium} Medium` : SKILL_COURSES[data.course]?.duration;
             
-            let photoHTML = data.photoUrl ? 
-                `<img src="${data.photoUrl}" alt="Student" class="w-full h-full object-cover" />` : 
-                `<span class="group-hover:text-orange-500 transition-colors font-bold text-slate-600 print:hidden">Click to Add<br/>Student Photo</span><span class="mt-3 text-[10px] text-slate-400 border-t border-slate-300 pt-2 w-full print:hidden font-medium">Or attach physical<br/>photo after print</span>`;
+            const renderDocItem = (docKey, docName) => {
+                const isUploaded = !!data[docKey];
+                return `
+                <div class="flex items-center justify-between bg-slate-50 border border-slate-200 p-2.5 rounded-lg group hover:border-[#F59E0B] transition-colors">
+                    <div class="flex items-center flex-1">
+                        <div class="w-4 h-4 ${isUploaded ? 'bg-[#1F5FBF]' : 'bg-white border-2 border-slate-300'} rounded-sm flex items-center justify-center mr-3 flex-shrink-0 shadow-sm">
+                            ${isUploaded ? '<i data-lucide="check" class="w-3 h-3 text-white"></i>' : ''}
+                        </div>
+                        <span class="text-[10px] font-bold text-slate-600 tracking-wide uppercase">${docName}</span>
+                    </div>
+                    
+                    <div class="flex items-center print:hidden">
+                        ${isUploaded ? `
+                            <button type="button" onclick="window.viewAttachment('${data[docKey]}')" class="text-blue-600 hover:bg-blue-100 p-1.5 rounded mr-1 transition-colors" title="View Document"><i data-lucide="eye" class="w-3.5 h-3.5"></i></button>
+                            <button type="button" onclick="window.removeAttachment('${docKey}', '${data.id}')" class="text-red-500 hover:bg-red-100 p-1.5 rounded transition-colors" title="Remove Document"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>
+                        ` : `
+                            <label class="cursor-pointer text-[#F59E0B] hover:bg-orange-50 p-1.5 rounded flex items-center text-[9px] font-bold uppercase tracking-wider transition-colors">
+                                <i data-lucide="upload" class="w-3.5 h-3.5 mr-1"></i> Attach
+                                <input type="file" accept="image/*" onchange="window.handleImageUpload(this, '${docKey}', '${data.id}')" class="hidden" />
+                            </label>
+                        `}
+                    </div>
+                </div>`;
+            };
 
             return `
-            <div class="p-4 sm:p-8 max-w-4xl mx-auto bg-gray-50 min-h-[100dvh] print:p-0 print:bg-white animate-fade-in">
-                <div class="flex flex-col sm:flex-row justify-between items-center mb-6 print:hidden gap-3">
-                    <button onclick="window.closeReceipt()" class="w-full sm:w-auto px-5 py-2.5 bg-white border border-slate-300 rounded-xl hover:bg-slate-50 font-bold shadow-sm transition-colors text-slate-700">← Back</button>
-                    <div class="flex space-x-3 w-full sm:w-auto justify-end">
-                        <label class="cursor-pointer px-4 py-2.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-xl text-xs md:text-sm font-bold hover:bg-blue-100 transition-colors shadow-sm whitespace-nowrap">
-                            Change Logo<input type="file" accept="image/*" onchange="window.handleImageUpload(this, 'formLogoUrl')" class="hidden" />
+            <div class="p-4 sm:p-8 bg-slate-200 min-h-[100dvh] print:p-0 print:bg-white animate-fade-in flex flex-col items-center">
+                
+                <!-- Toolbar -->
+                <div class="w-full max-w-[794px] flex flex-col sm:flex-row justify-between items-center mb-4 print:hidden gap-3">
+                    <button onclick="window.closeReceipt()" class="w-full sm:w-auto px-5 py-2.5 bg-white border border-slate-300 rounded-xl hover:bg-slate-50 font-bold shadow-sm transition-colors text-slate-700 flex items-center justify-center">
+                        <i data-lucide="arrow-left" class="w-4 h-4 mr-2"></i> Back
+                    </button>
+                    <div class="flex space-x-3 w-full sm:w-auto justify-end flex-wrap gap-y-2">
+                        
+                        <!-- Logo Resize Slider -->
+                        <div class="flex items-center space-x-2 bg-white border border-slate-300 rounded-xl px-3 py-2" title="Adjust Logo Size">
+                            <i data-lucide="scaling" class="w-4 h-4 text-slate-500"></i>
+                            <input type="range" min="40" max="160" value="${state.formLogoSize || 80}" onchange="window.updateLogoSize(this.value)" class="w-20 sm:w-24 accent-[#F59E0B]" />
+                        </div>
+
+                        <label class="cursor-pointer px-4 py-2.5 bg-white text-slate-600 border border-slate-300 rounded-xl text-xs md:text-sm font-bold hover:bg-slate-50 transition-colors shadow-sm whitespace-nowrap flex items-center justify-center">
+                            <i data-lucide="image" class="w-4 h-4 mr-2 text-[#1F5FBF]"></i> Change Logo
+                            <input type="file" accept="image/*" onchange="window.handleImageUpload(this, 'formLogoUrl')" class="hidden" />
                         </label>
-                        <button onclick="window.print()" class="px-5 py-2.5 bg-orange-500 text-white rounded-xl hover:bg-orange-600 font-bold flex items-center justify-center space-x-2 shadow-sm transition-colors whitespace-nowrap">
-                            <i data-lucide="printer" class="w-4 h-4"></i> <span>Print</span>
+                        <button onclick="window.shareFormWhatsApp()" class="px-4 py-2.5 bg-green-500 text-white rounded-xl hover:bg-green-600 font-bold flex items-center justify-center shadow-md transition-colors whitespace-nowrap">
+                            <i data-lucide="message-circle" class="w-4 h-4 mr-2"></i> WA Share
+                        </button>
+                        <button id="pdf-download-btn" onclick="window.generatePremiumPDF()" class="px-5 py-2.5 bg-[#0A1E4D] text-white rounded-xl hover:bg-slate-800 font-bold flex items-center justify-center shadow-lg transition-colors whitespace-nowrap">
+                            <i data-lucide="download" class="w-4 h-4 mr-2 text-[#F59E0B]"></i> <span>Download Premium PDF</span>
                         </button>
                     </div>
                 </div>
 
-                <div class="overflow-x-auto print:overflow-visible">
-                    <div class="bg-white p-6 md:p-10 rounded-2xl shadow-xl print:shadow-none print:p-6 border-t-[8px] md:border-t-[12px] border-slate-900 border-x border-b min-w-[700px]">
-                        <div class="flex justify-between items-center border-b-[3px] border-slate-800 pb-6 mb-6">
-                            <div class="w-24 h-24 md:w-32 md:h-32 flex items-center justify-center overflow-hidden bg-white">
-                                <img src="${state.formLogoUrl}" alt="UVA Logo" class="w-full h-full object-contain" />
-                            </div>
-                            <div class="flex-1 text-center px-4">
-                                <h1 class="text-3xl md:text-4xl font-extrabold text-slate-900 tracking-tight">UDAAN</h1>
-                                <h2 class="text-xl md:text-2xl font-bold text-orange-500 tracking-widest uppercase mt-1">Vibrant Academy</h2>
-                                <p class="text-xs md:text-sm text-slate-600 italic mt-2 font-bold">"Where Learning Takes Flight"</p>
-                                <div class="mt-3 md:mt-4 inline-block bg-slate-900 text-white px-6 py-1.5 rounded-full font-bold uppercase tracking-widest text-[10px] md:text-sm shadow-sm">Admission Form</div>
-                            </div>
-                            <label class="w-24 h-32 md:w-28 md:h-36 border-2 border-dashed border-slate-400 flex flex-col items-center justify-center text-center p-1 text-[10px] md:text-xs text-slate-500 bg-slate-50 rounded-lg overflow-hidden cursor-pointer hover:bg-slate-100 transition-colors group relative">
-                                <input type="file" accept="image/*" onchange="window.handleImageUpload(this, 'photoUrl', '${data.id}')" class="hidden print:hidden" />
-                                ${photoHTML}
-                            </label>
-                        </div>
+                <!-- A4 Premium Document Wrapper -->
+                <div class="a4-wrapper print:p-0">
+                    <div id="premium-admission-document" class="a4-document bg-white flex flex-col print:shadow-none">
+                        
+                        <!-- Watermark -->
+                        <img src="${state.formLogoUrl}" class="watermark-logo" />
 
-                        <div class="flex justify-between text-xs md:text-sm font-bold text-slate-700 mb-8 bg-slate-50 p-3 rounded-lg border border-slate-200">
-                            <p>Student ID: <span class="font-mono font-extrabold text-slate-900 ml-2 bg-white px-2 py-0.5 rounded border">${data.id}</span></p>
-                            <p>Date: <span class="font-extrabold text-slate-900 ml-2">${new Date().toLocaleDateString('en-IN')}</span></p>
-                        </div>
-
-                        <div class="mb-8">
-                            <h3 class="bg-slate-100 p-2 font-bold text-slate-800 border-l-[6px] border-orange-500 mb-5 uppercase text-xs md:text-sm tracking-wide">1. Student Details</h3>
-                            <div class="grid grid-cols-2 gap-y-6 gap-x-10 text-xs md:text-sm">
-                                <div class="flex flex-col"><span class="text-slate-500 font-bold uppercase text-[10px] md:text-[11px] tracking-wider">Full Name (As per records):</span><div class="border-b-2 border-slate-300 mt-1 font-bold text-slate-900 text-sm md:text-base pb-1">${data.name}</div></div>
-                                <div class="flex flex-col"><span class="text-slate-500 font-bold uppercase text-[10px] md:text-[11px] tracking-wider">Contact Number (WhatsApp):</span><div class="border-b-2 border-slate-300 mt-1 font-bold text-slate-900 text-sm md:text-base pb-1">+91 ${data.phone}</div></div>
-                                <div class="flex flex-col"><span class="text-slate-500 font-bold uppercase text-[10px] md:text-[11px] tracking-wider">Date of Birth (DD/MM/YYYY):</span><div class="border-b-2 border-slate-300 mt-1 font-bold text-slate-900 text-sm md:text-base pb-1">${data.dob}</div></div>
-                                <div class="flex flex-col"><span class="text-slate-500 font-bold uppercase text-[10px] md:text-[11px] tracking-wider">Gender & Blood Group:</span><div class="border-b-2 border-slate-300 mt-1 font-bold text-slate-900 text-sm md:text-base pb-1">${data.gender}${data.bloodGroup!=='-'?`, ${data.bloodGroup}`:''}</div></div>
-                                <div class="flex flex-col col-span-2"><span class="text-slate-500 font-bold uppercase text-[10px] md:text-[11px] tracking-wider">Residential Address:</span><div class="border-b-2 border-slate-300 mt-1 font-bold text-slate-900 text-sm md:text-base pb-1">${data.address}</div></div>
+                        <!-- 1. HEADER SECTION -->
+                        <div class="flex h-[130px] w-full relative z-10 border-b-[8px] border-[#0A1E4D]">
+                            <!-- Left Branding -->
+                            <div class="w-[65%] bg-white pl-8 pr-4 flex items-center">
+                                <img src="${state.formLogoUrl}" style="width: ${state.formLogoSize || 80}px; height: ${state.formLogoSize || 80}px;" class="object-contain mr-5" />
+                                <div class="flex flex-col justify-center">
+                                    <h1 class="font-['Montserrat'] font-black text-3xl text-[#0A1E4D] tracking-tighter leading-none mb-1">UDAAN</h1>
+                                    <h2 class="font-['Montserrat'] font-bold text-[17px] text-[#F59E0B] tracking-[0.2em] uppercase leading-none mb-1">Vibrant Academy</h2>
+                                    <p class="text-[10px] font-bold italic text-slate-500 tracking-wider">"Where Learning Takes Flight"</p>
+                                </div>
+                            </div>
+                            <!-- Right Details -->
+                            <div class="w-[35%] bg-[#0A1E4D] p-6 flex flex-col justify-center border-l-[6px] border-[#F59E0B] relative">
+                                <h3 class="font-['Montserrat'] font-bold text-[19px] text-white tracking-widest uppercase border-b-2 border-[#1F5FBF] pb-1.5 mb-3 inline-block">Admission Form</h3>
+                                <div class="flex flex-col space-y-2 text-white/90 text-[10px]">
+                                    <div class="flex justify-between border-b border-white/20 pb-0.5"><span class="font-medium text-slate-300">Admission Date:</span><span class="font-bold tracking-wide">${new Date(data.date).toLocaleDateString('en-IN')}</span></div>
+                                    <div class="flex justify-between border-b border-white/20 pb-0.5"><span class="font-medium text-slate-300">Unique Form ID:</span><span class="font-black text-[#F59E0B] tracking-wider">${data.id}</span></div>
+                                </div>
                             </div>
                         </div>
 
-                        <div class="mb-8">
-                            <h3 class="bg-slate-100 p-2 font-bold text-slate-800 border-l-[6px] border-orange-500 mb-5 uppercase text-xs md:text-sm tracking-wide">2. Course Enrollment</h3>
-                            <div class="grid grid-cols-2 gap-y-6 gap-x-10 text-xs md:text-sm">
-                                <div class="flex flex-col"><span class="text-slate-500 font-bold uppercase text-[10px] md:text-[11px] tracking-wider">Program Category:</span><div class="border-b-2 border-slate-300 mt-1 font-bold text-slate-900 text-sm md:text-base pb-1">${data.type === 'Skill' ? 'Professional & AI Skills Academy' : 'Academic Tuition (9-12)'}</div></div>
-                                <div class="flex flex-col"><span class="text-slate-500 font-bold uppercase text-[10px] md:text-[11px] tracking-wider">Course / Standard Selected:</span><div class="border-b-2 border-slate-300 mt-1 font-bold text-orange-600 text-sm md:text-base pb-1">${programName}</div></div>
-                                <div class="flex flex-col"><span class="text-slate-500 font-bold uppercase text-[10px] md:text-[11px] tracking-wider">Medium & Board / Duration:</span><div class="border-b-2 border-slate-300 mt-1 font-bold text-slate-900 text-sm md:text-base pb-1">${dur}</div></div>
-                                <div class="flex flex-col"><span class="text-slate-500 font-bold uppercase text-[10px] md:text-[11px] tracking-wider">Preferred Batch Timing:</span><div class="border-b-2 border-slate-300 mt-1 font-bold text-slate-900 text-sm md:text-base pb-1">${data.batchTiming}</div></div>
-                                ${data.freeOffer && data.freeOffer !== 'None' ? `<div class="flex flex-col col-span-2"><span class="text-slate-500 font-bold uppercase text-[10px] md:text-[11px] tracking-wider">Free Add-on / Offer Applied:</span><div class="border-b-2 border-slate-300 mt-1 font-bold text-orange-600 text-sm md:text-base pb-1">${data.freeOffer}</div></div>` : ''}
+                        <!-- 2. INFO RIBBON CARDS -->
+                        <div class="px-8 py-5 relative z-10">
+                            <div class="flex bg-slate-50 border border-slate-200 rounded-xl p-2.5 shadow-sm justify-between">
+                                <div class="flex items-center px-4 w-1/3 border-r border-slate-200">
+                                    <div class="w-8 h-8 rounded-full bg-[#0A1E4D]/10 flex items-center justify-center text-[#0A1E4D] mr-3"><i data-lucide="user" class="w-4 h-4"></i></div>
+                                    <div class="flex flex-col"><span class="text-[8px] font-extrabold text-slate-400 uppercase tracking-widest mb-0.5">Student ID</span><span class="text-[13px] font-black text-[#0A1E4D] leading-none">${data.id}</span></div>
+                                </div>
+                                <div class="flex items-center px-4 w-1/3 border-r border-slate-200">
+                                    <div class="w-8 h-8 rounded-full bg-[#1F5FBF]/10 flex items-center justify-center text-[#1F5FBF] mr-3"><i data-lucide="calendar" class="w-4 h-4"></i></div>
+                                    <div class="flex flex-col"><span class="text-[8px] font-extrabold text-slate-400 uppercase tracking-widest mb-0.5">Application Date</span><span class="text-[13px] font-bold text-slate-800 leading-none">${new Date(data.date).toLocaleDateString('en-IN')}</span></div>
+                                </div>
+                                <div class="flex items-center px-4 w-1/3">
+                                    <div class="w-8 h-8 rounded-full bg-[#F59E0B]/10 flex items-center justify-center text-[#D97706] mr-3"><i data-lucide="graduation-cap" class="w-4 h-4"></i></div>
+                                    <div class="flex flex-col"><span class="text-[8px] font-extrabold text-slate-400 uppercase tracking-widest mb-0.5">Academic Year</span><span class="text-[13px] font-bold text-slate-800 leading-none">2026 - 2027</span></div>
+                                </div>
                             </div>
                         </div>
 
-                        <div class="mb-8">
-                            <h3 class="bg-slate-100 p-2 font-bold text-slate-800 border-l-[6px] border-orange-500 mb-5 uppercase text-xs md:text-sm tracking-wide">3. Parent / Guardian Details</h3>
-                            <div class="grid grid-cols-2 gap-y-6 gap-x-10 text-xs md:text-sm">
-                                <div class="flex flex-col"><span class="text-slate-500 font-bold uppercase text-[10px] md:text-[11px] tracking-wider">Father's / Guardian's Name:</span><div class="border-b-2 border-slate-300 mt-1 font-bold text-slate-900 text-sm md:text-base pb-1">${data.parentName}</div></div>
-                                <div class="flex flex-col"><span class="text-slate-500 font-bold uppercase text-[10px] md:text-[11px] tracking-wider">Parent's Contact Number:</span><div class="border-b-2 border-slate-300 mt-1 font-bold text-slate-900 text-sm md:text-base pb-1">${data.parentPhone !== '-' ? `+91 ${data.parentPhone}` : '-'}</div></div>
-                                <div class="flex flex-col"><span class="text-slate-500 font-bold uppercase text-[10px] md:text-[11px] tracking-wider">Occupation:</span><div class="border-b-2 border-slate-300 mt-1 font-bold text-slate-900 text-sm md:text-base pb-1">${data.parentOccupation}</div></div>
-                                <div class="flex flex-col"><span class="text-slate-500 font-bold uppercase text-[10px] md:text-[11px] tracking-wider">Email Address:</span><div class="border-b-2 border-slate-300 mt-1 font-bold text-slate-900 text-sm md:text-base pb-1">${data.parentEmail}</div></div>
-                            </div>
-                        </div>
-
-                        <div class="border-t-2 border-slate-200 pt-6 mt-12 md:mt-16">
-                            <p class="text-[10px] md:text-[11px] text-slate-500 mb-8 md:mb-10 text-justify font-medium leading-relaxed">
-                                <span class="font-extrabold text-slate-700">Declaration:</span> I hereby declare that the information provided above is true to the best of my knowledge. I agree to abide by the rules and regulations of Udaan Vibrant Academy. I understand that a minimum of 75% attendance is mandatory for certification and academic success.
-                            </p>
+                        <!-- 3. MAIN FORM BODY (Two Columns) -->
+                        <div class="px-8 flex-1 flex gap-8 relative z-10">
                             
-                            <div class="flex justify-between items-end px-2 md:px-6">
-                                <div class="text-center group relative cursor-pointer">
-                                    <label>
-                                        <input type="file" accept="image/*" onchange="window.handleImageUpload(this, 'studentSignUrl', '${data.id}')" class="hidden print:hidden" />
-                                        <div class="w-32 md:w-48 border-b-2 border-slate-400 mb-2 h-12 flex items-end justify-center">
-                                            ${data.studentSignUrl ? `<img src="${data.studentSignUrl}" class="max-h-12 object-contain" />` : `<span class="text-xs text-slate-300 print:hidden font-medium">Click to Sign</span>`}
+                            <!-- LEFT COLUMN -->
+                            <div class="w-[66%] flex flex-col space-y-6">
+                                
+                                <!-- Sec 1: Student Information -->
+                                <div>
+                                    <div class="flex items-center border-b-[3px] border-slate-100 pb-2 mb-4">
+                                        <div class="w-6 h-6 bg-[#0A1E4D] rounded flex items-center justify-center text-white text-[11px] font-black mr-3 shadow-sm">1</div>
+                                        <h4 class="font-['Montserrat'] text-[13px] font-bold text-[#0A1E4D] uppercase tracking-wider">Student Information</h4>
+                                    </div>
+                                    <div class="grid grid-cols-2 gap-x-6 gap-y-4 px-2">
+                                        <div class="col-span-2 flex flex-col"><span class="pdf-label">Full Name (As per records) <span class="text-red-500">*</span></span><div class="pdf-value uppercase">${data.name}</div></div>
+                                        <div class="flex flex-col"><span class="pdf-label">Date of Birth <span class="text-red-500">*</span></span><div class="pdf-value">${data.dob}</div></div>
+                                        <div class="grid grid-cols-2 gap-x-4">
+                                            <div class="flex flex-col"><span class="pdf-label">Gender</span><div class="pdf-value">${data.gender}</div></div>
+                                            <div class="flex flex-col"><span class="pdf-label">Blood Grp</span><div class="pdf-value">${data.bloodGroup}</div></div>
                                         </div>
-                                        <p class="text-[10px] md:text-sm font-bold text-slate-700 uppercase tracking-wide">Student's Signature</p>
-                                    </label>
+                                        <div class="flex flex-col"><span class="pdf-label">Mobile Number <span class="text-red-500">*</span></span><div class="pdf-value"><span class="text-slate-400 mr-1">+91</span>${data.phone}</div></div>
+                                        <div class="flex flex-col"><span class="pdf-label">WhatsApp Number</span><div class="pdf-value"><span class="text-slate-400 mr-1">+91</span>${data.phone}</div></div>
+                                        <div class="flex flex-col"><span class="pdf-label">Email Address</span><div class="pdf-value lowercase">${data.parentEmail !== '-' ? data.parentEmail : ''}</div></div>
+                                        <div class="flex flex-col"><span class="pdf-label">Aadhaar Number <span class="text-red-500">*</span></span><div class="pdf-value font-mono"></div></div>
+                                    </div>
                                 </div>
-                                <div class="text-center group relative cursor-pointer">
-                                    <label>
-                                        <input type="file" accept="image/*" onchange="window.handleImageUpload(this, 'parentSignUrl', '${data.id}')" class="hidden print:hidden" />
-                                        <div class="w-32 md:w-48 border-b-2 border-slate-400 mb-2 h-12 flex items-end justify-center">
-                                            ${data.parentSignUrl ? `<img src="${data.parentSignUrl}" class="max-h-12 object-contain" />` : `<span class="text-xs text-slate-300 print:hidden font-medium">Click to Sign</span>`}
-                                        </div>
-                                        <p class="text-[10px] md:text-sm font-bold text-slate-700 uppercase tracking-wide">Parent's Signature</p>
-                                    </label>
+
+                                <!-- Sec 2: Course Enrollment -->
+                                <div class="bg-blue-50/50 p-4 rounded-2xl border border-blue-100 relative overflow-hidden">
+                                    <div class="absolute right-0 top-0 w-16 h-16 bg-[#1F5FBF] opacity-5 rounded-bl-full"></div>
+                                    <div class="flex items-center border-b-[3px] border-blue-100 pb-2 mb-4 relative z-10">
+                                        <div class="w-6 h-6 bg-[#1F5FBF] rounded flex items-center justify-center text-white text-[11px] font-black mr-3 shadow-sm">2</div>
+                                        <h4 class="font-['Montserrat'] text-[13px] font-bold text-[#1F5FBF] uppercase tracking-wider">Course Enrollment</h4>
+                                    </div>
+                                    <div class="grid grid-cols-2 gap-x-6 gap-y-4 px-2 relative z-10">
+                                        <div class="col-span-2 flex flex-col"><span class="pdf-label text-[#1F5FBF]/70">Selected Course <span class="text-red-500">*</span></span><div class="pdf-value text-[#1F5FBF] border-[#1F5FBF]/30">${programName}</div></div>
+                                        <div class="flex flex-col"><span class="pdf-label text-[#1F5FBF]/70">Program Category</span><div class="pdf-value border-[#1F5FBF]/30">${data.type === 'Skill' ? 'Professional & AI Skills' : 'Academic Tuition'}</div></div>
+                                        <div class="flex flex-col"><span class="pdf-label text-[#1F5FBF]/70">Duration / Medium</span><div class="pdf-value border-[#1F5FBF]/30">${dur}</div></div>
+                                        <div class="flex flex-col"><span class="pdf-label text-[#1F5FBF]/70">Preferred Batch Timing</span><div class="pdf-value border-[#1F5FBF]/30">${data.batchTiming}</div></div>
+                                        ${data.freeOffer && data.freeOffer !== 'None' ? `<div class="flex flex-col"><span class="pdf-label text-[#F59E0B]">Free Add-on Offer</span><div class="pdf-value text-[#D97706] border-[#F59E0B]/30">${data.freeOffer}</div></div>` : ''}
+                                    </div>
                                 </div>
-                                <div class="text-center group relative cursor-pointer">
-                                    <label>
-                                        <input type="file" accept="image/*" onchange="window.handleImageUpload(this, 'adminSignUrl')" class="hidden print:hidden" />
-                                        <div class="w-32 md:w-48 border-b-2 border-slate-400 mb-2 h-12 flex items-end justify-center">
-                                            ${state.adminSignUrl ? `<img src="${state.adminSignUrl}" class="max-h-12 object-contain" />` : `<span class="text-xs text-slate-300 print:hidden font-medium">Click to Sign</span>`}
+
+                                <!-- Sec 3: Parent Info -->
+                                <div>
+                                    <div class="flex items-center border-b-[3px] border-slate-100 pb-2 mb-4">
+                                        <div class="w-6 h-6 bg-[#F59E0B] rounded flex items-center justify-center text-white text-[11px] font-black mr-3 shadow-sm">3</div>
+                                        <h4 class="font-['Montserrat'] text-[13px] font-bold text-[#0A1E4D] uppercase tracking-wider">Parent / Guardian Info</h4>
+                                    </div>
+                                    <div class="grid grid-cols-2 gap-x-6 gap-y-4 px-2">
+                                        <div class="col-span-2 flex flex-col"><span class="pdf-label">Father's / Guardian's Name <span class="text-red-500">*</span></span><div class="pdf-value uppercase">${data.parentName}</div></div>
+                                        <div class="flex flex-col"><span class="pdf-label">Parent's Contact Number <span class="text-red-500">*</span></span><div class="pdf-value">${data.parentPhone !== '-' ? `<span class="text-slate-400 mr-1">+91</span>${data.parentPhone}` : ''}</div></div>
+                                        <div class="flex flex-col"><span class="pdf-label">Occupation</span><div class="pdf-value">${data.parentOccupation !== '-' ? data.parentOccupation : ''}</div></div>
+                                    </div>
+                                </div>
+
+                                <!-- Sec 4: Address Info -->
+                                <div>
+                                    <div class="flex items-center border-b-[3px] border-slate-100 pb-2 mb-4">
+                                        <div class="w-6 h-6 bg-[#0A1E4D] rounded flex items-center justify-center text-white text-[11px] font-black mr-3 shadow-sm">4</div>
+                                        <h4 class="font-['Montserrat'] text-[13px] font-bold text-[#0A1E4D] uppercase tracking-wider">Address Details</h4>
+                                    </div>
+                                    <div class="grid grid-cols-2 gap-x-6 gap-y-4 px-2">
+                                        <div class="col-span-2 flex flex-col"><span class="pdf-label">Residential Address <span class="text-red-500">*</span></span><div class="pdf-value">${data.address !== 'Not Provided' ? data.address : ''}</div></div>
+                                        <div class="flex flex-col"><span class="pdf-label">City / District</span><div class="pdf-value">${data.city || ''}</div></div>
+                                        <div class="grid grid-cols-2 gap-x-4">
+                                            <div class="flex flex-col"><span class="pdf-label">State</span><div class="pdf-value">${data.state || ''}</div></div>
+                                            <div class="flex flex-col"><span class="pdf-label">Pin Code <span class="text-red-500">*</span></span><div class="pdf-value font-mono">${data.pincode || ''}</div></div>
                                         </div>
-                                        <p class="text-[10px] md:text-sm font-bold text-slate-700 uppercase tracking-wide">Authorized Signatory</p>
-                                    </label>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- RIGHT COLUMN -->
+                            <div class="w-[34%] flex flex-col space-y-6">
+                                
+                                <!-- Photo Area -->
+                                <div class="border border-slate-200 bg-slate-50/50 rounded-2xl p-4 flex flex-col items-center justify-center relative shadow-sm h-[200px]">
+                                    <div class="absolute top-0 right-0 bg-[#0A1E4D] text-white text-[8px] font-bold px-3 py-1 rounded-bl-xl rounded-tr-xl uppercase tracking-wider shadow-sm">Student Photo</div>
+                                    
+                                    <div class="w-32 h-36 mt-3 relative group">
+                                        ${!data.photoUrl ? `
+                                        <label class="w-full h-full border-[3px] border-dashed border-slate-300 rounded-xl flex flex-col items-center justify-center bg-white cursor-pointer overflow-hidden hover:border-[#F59E0B] transition-colors">
+                                            <input type="file" accept="image/*" onchange="window.handleImageUpload(this, 'photoUrl', '${data.id}')" class="hidden print:hidden" />
+                                            <div class="flex flex-col items-center justify-center h-full text-center p-2"><i data-lucide="user-square" class="w-8 h-8 text-slate-300 mb-1"></i><span class="font-bold text-[10px] text-slate-400 print:hidden leading-tight">Click to Upload<br/>Student Photo</span><span class="text-[8px] text-slate-300 mt-2 font-medium block print:block hidden">Affix Passport<br/>Size Photo</span></div>
+                                        </label>
+                                        ` : `
+                                        <div class="w-full h-full border-[3px] border-solid border-slate-200 rounded-xl overflow-hidden relative">
+                                            <img src="${data.photoUrl}" alt="Student" class="w-full h-full object-cover rounded-xl" />
+                                            <div class="absolute inset-0 bg-slate-900/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center space-x-2 print:hidden backdrop-blur-sm">
+                                                <button type="button" onclick="window.viewAttachment('${data.photoUrl}')" class="p-2 bg-white text-blue-600 rounded-full hover:bg-blue-50 shadow-lg transform hover:scale-110 transition-all" title="View"><i data-lucide="eye" class="w-4 h-4"></i></button>
+                                                <button type="button" onclick="window.removeAttachment('photoUrl', '${data.id}')" class="p-2 bg-white text-red-600 rounded-full hover:bg-red-50 shadow-lg transform hover:scale-110 transition-all" title="Remove"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                                            </div>
+                                        </div>
+                                        `}
+                                    </div>
+                                </div>
+
+                                <!-- Documents Upload list -->
+                                <div>
+                                    <div class="flex items-center border-b-[3px] border-slate-100 pb-2 mb-4">
+                                        <div class="w-6 h-6 bg-[#F59E0B] rounded flex items-center justify-center text-white text-[11px] font-black mr-3 shadow-sm">5</div>
+                                        <h4 class="font-['Montserrat'] text-[13px] font-bold text-[#0A1E4D] uppercase tracking-wider">Documents Required</h4>
+                                    </div>
+                                    <div class="space-y-2.5 px-2">
+                                        ${renderDocItem('docAadhaar', 'Aadhaar Card Copy')}
+                                        ${renderDocItem('docMarksheet', 'Previous Marksheet')}
+                                        ${renderDocItem('docLeavingCert', 'School Leaving Cert.')}
+                                    </div>
+                                </div>
+
+                                <!-- Verification Box -->
+                                <div class="mt-auto bg-slate-100/80 border border-slate-200 rounded-2xl p-4 relative shadow-sm">
+                                    <div class="absolute top-0 right-0 bg-[#0A1E4D] text-white text-[7px] font-bold px-3 py-1 rounded-bl-xl rounded-tr-xl uppercase tracking-widest shadow-sm">Terms & Verify</div>
+                                    <div class="flex items-start mt-2">
+                                        <div class="w-3 h-3 bg-[#0A1E4D] rounded-sm flex items-center justify-center mr-2 mt-0.5 flex-shrink-0"><i data-lucide="check" class="w-2 h-2 text-white"></i></div>
+                                        <p class="text-[8px] font-medium text-slate-600 leading-snug text-justify">
+                                            I hereby declare that the information provided above is true and correct to the best of my knowledge. I agree to abide by the rules and regulations of Udaan Vibrant Academy. I understand that a minimum of 75% attendance is mandatory. Fees are non-refundable.
+                                        </p>
+                                    </div>
                                 </div>
                             </div>
                         </div>
+
+                        <!-- 4. SIGNATURES (Spans Full Width Bottom) -->
+                        <div class="px-10 pb-6 relative z-10 mt-auto flex justify-between items-end">
+                            
+                            <div class="text-center group w-44 relative">
+                                <label class="flex flex-col items-center cursor-pointer">
+                                    <input type="file" accept="image/*" onchange="window.handleImageUpload(this, 'studentSignUrl', '${data.id}')" class="hidden print:hidden" />
+                                    <div class="w-full border-b-[2px] border-slate-400 h-14 flex items-end justify-center pb-1 transition-colors group-hover:border-[#F59E0B]">
+                                        ${data.studentSignUrl ? `<img src="${data.studentSignUrl}" class="max-h-12 object-contain" />` : `<span class="text-[9px] text-slate-300 print:hidden font-bold tracking-wider">Click to Sign</span>`}
+                                    </div>
+                                    <p class="text-[9px] font-extrabold text-[#0A1E4D] mt-1.5 uppercase tracking-widest">Student's Signature</p>
+                                </label>
+                                ${data.studentSignUrl ? `
+                                    <div class="absolute -top-3 -right-3 flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity print:hidden z-20">
+                                        <button type="button" onclick="window.viewAttachment('${data.studentSignUrl}')" class="p-1.5 bg-white text-blue-600 rounded-full shadow border hover:bg-blue-50"><i data-lucide="eye" class="w-3 h-3"></i></button>
+                                        <button type="button" onclick="window.removeAttachment('studentSignUrl', '${data.id}')" class="p-1.5 bg-white text-red-600 rounded-full shadow border hover:bg-red-50"><i data-lucide="trash-2" class="w-3 h-3"></i></button>
+                                    </div>
+                                ` : ''}
+                            </div>
+                            
+                            <div class="text-center group w-44 relative">
+                                <label class="flex flex-col items-center cursor-pointer">
+                                    <input type="file" accept="image/*" onchange="window.handleImageUpload(this, 'parentSignUrl', '${data.id}')" class="hidden print:hidden" />
+                                    <div class="w-full border-b-[2px] border-slate-400 h-14 flex items-end justify-center pb-1 transition-colors group-hover:border-[#F59E0B]">
+                                        ${data.parentSignUrl ? `<img src="${data.parentSignUrl}" class="max-h-12 object-contain" />` : `<span class="text-[9px] text-slate-300 print:hidden font-bold tracking-wider">Click to Sign</span>`}
+                                    </div>
+                                    <p class="text-[9px] font-extrabold text-[#0A1E4D] mt-1.5 uppercase tracking-widest">Parent's Signature</p>
+                                </label>
+                                ${data.parentSignUrl ? `
+                                    <div class="absolute -top-3 -right-3 flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity print:hidden z-20">
+                                        <button type="button" onclick="window.viewAttachment('${data.parentSignUrl}')" class="p-1.5 bg-white text-blue-600 rounded-full shadow border hover:bg-blue-50"><i data-lucide="eye" class="w-3 h-3"></i></button>
+                                        <button type="button" onclick="window.removeAttachment('parentSignUrl', '${data.id}')" class="p-1.5 bg-white text-red-600 rounded-full shadow border hover:bg-red-50"><i data-lucide="trash-2" class="w-3 h-3"></i></button>
+                                    </div>
+                                ` : ''}
+                            </div>
+                            
+                            <div class="text-center group w-44 relative">
+                                <label class="flex flex-col items-center cursor-pointer">
+                                    <input type="file" accept="image/*" onchange="window.handleImageUpload(this, 'adminSignUrl')" class="hidden print:hidden" />
+                                    <div class="w-full border-b-[3px] border-[#0A1E4D] h-14 flex items-end justify-center pb-1 transition-colors group-hover:border-[#F59E0B]">
+                                        ${state.adminSignUrl ? `<img src="${state.adminSignUrl}" class="max-h-12 object-contain" />` : `<span class="text-[9px] text-slate-300 print:hidden font-bold tracking-wider">Click to Sign</span>`}
+                                    </div>
+                                    <p class="text-[9px] font-extrabold text-[#0A1E4D] mt-1.5 uppercase tracking-widest">Authorized Signatory</p>
+                                </label>
+                                ${state.adminSignUrl ? `
+                                    <div class="absolute -top-3 -right-3 flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity print:hidden z-20">
+                                        <button type="button" onclick="window.viewAttachment('${state.adminSignUrl}')" class="p-1.5 bg-white text-blue-600 rounded-full shadow border hover:bg-blue-50"><i data-lucide="eye" class="w-3 h-3"></i></button>
+                                        <button type="button" onclick="window.removeAttachment('adminSignUrl')" class="p-1.5 bg-white text-red-600 rounded-full shadow border hover:bg-red-50"><i data-lucide="trash-2" class="w-3 h-3"></i></button>
+                                    </div>
+                                ` : ''}
+                            </div>
+                            
+                        </div>
+
+                        <!-- 5. FOOTER -->
+                        <div class="h-[52px] bg-[#0A1E4D] w-full flex items-center justify-between px-10 relative z-10 text-white mt-auto">
+                            <div class="flex space-x-8 text-[10px] font-semibold tracking-wide">
+                                <div class="flex items-center"><i data-lucide="globe" class="w-3.5 h-3.5 text-[#F59E0B] mr-2"></i> www.uvainfo.in</div>
+                                <div class="flex items-center"><i data-lucide="phone" class="w-3.5 h-3.5 text-[#F59E0B] mr-2"></i> +91 94080 97177</div>
+                                <div class="flex items-center"><i data-lucide="mail" class="w-3.5 h-3.5 text-[#F59E0B] mr-2"></i> uvainfo7@gmail.com</div>
+                            </div>
+                            <div class="bg-white p-1 rounded-sm shadow-sm flex items-center justify-center">
+                                <!-- Small generic QR representation for aesthetics -->
+                                <svg class="w-7 h-7 text-[#0A1E4D]" viewBox="0 0 24 24" fill="currentColor"><path d="M3 3h8v8H3V3zm2 2v4h4V5H5zm8-2h8v8h-8V3zm2 2v4h4V5h-4zM3 13h8v8H3v-8zm2 2v4h4v-4H5zm13-2h-2v2h2v-2zm-2 2h-2v2h2v-2zm2 2h-2v2h2v-2zm-2 2h-2v2h2v-2zm2 0h2v2h-2v-2zm-6-6h2v2h-2v-2z"/></svg>
+                            </div>
+                        </div>
+
                     </div>
                 </div>
             </div>`;
@@ -1646,35 +2050,31 @@
         function AttendanceReportViewTemplate() {
             const data = state.attendanceReportData;
             const formattedMonth = new Date(data.month + '-01').toLocaleString('en-IN', { month: 'long', year: 'numeric' });
-
-            const getMonthlyStats = (studentId) => {
-                let hash = 0; for (let i = 0; i < studentId.length; i++) hash += studentId.charCodeAt(i);
-                const totalWorkingDays = 24; 
-                const presentDays = 18 + (hash % 7); 
-                const absentDays = totalWorkingDays - presentDays;
-                const percentage = Math.round((presentDays / totalWorkingDays) * 100);
-                return { totalWorkingDays, presentDays, absentDays, percentage };
-            };
-
-            let totalBatchPercentage = 0;
-            data.students.forEach(std => { totalBatchPercentage += getMonthlyStats(std.id).percentage; });
-            const avgAttendance = data.students.length > 0 ? Math.round(totalBatchPercentage / data.students.length) : 0;
-
-            const presentCount = data.students.filter(s => (data.state[s.id]?.status || 'Present') === 'Present').length;
-            const absentCount = data.students.filter(s => data.state[s.id]?.status === 'Absent').length;
+            
+            const [year, month] = data.month.split('-');
+            const prefix = `${year}-${month}-`;
+            const validDates = Object.keys(data.state).filter(k => k.startsWith(prefix));
 
             let stdHTML = data.students.map((std, index) => {
-                const stats = getMonthlyStats(std.id);
+                let p = 0, a = 0;
+                validDates.forEach(date => {
+                    const st = data.state[date]?.[std.id]?.status;
+                    if(st === 'Present') p++;
+                    if(st === 'Absent') a++;
+                });
+                const totalWorkingDays = p + a;
+                const percentage = totalWorkingDays > 0 ? Math.round((p / totalWorkingDays) * 100) : 0;
+                
                 return `
                 <tr class="border-b border-slate-200 text-xs md:text-sm">
                     <td class="p-2 md:p-3.5 border-r border-slate-300 text-center font-bold text-slate-500">${index + 1}</td>
                     <td class="p-2 md:p-3.5 border-r border-slate-300 font-mono font-bold text-slate-600">${std.id}</td>
                     <td class="p-2 md:p-3.5 border-r border-slate-300 font-extrabold text-slate-900">${std.name}</td>
-                    <td class="p-2 md:p-3.5 border-r border-slate-300 text-center font-bold text-slate-700">${stats.totalWorkingDays}</td>
-                    <td class="p-2 md:p-3.5 border-r border-slate-300 text-center font-extrabold text-green-600">${stats.presentDays}</td>
-                    <td class="p-2 md:p-3.5 border-r border-slate-300 text-center font-bold text-red-500">${stats.absentDays}</td>
+                    <td class="p-2 md:p-3.5 border-r border-slate-300 text-center font-bold text-slate-700">${totalWorkingDays}</td>
+                    <td class="p-2 md:p-3.5 border-r border-slate-300 text-center font-extrabold text-green-600">${p}</td>
+                    <td class="p-2 md:p-3.5 border-r border-slate-300 text-center font-bold text-red-500">${a}</td>
                     <td class="p-2 md:p-3.5 text-center">
-                        <span class="px-2 md:px-3 py-1 rounded-full text-[10px] md:text-xs font-extrabold tracking-wide ${stats.percentage >= 75 ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">${stats.percentage}%</span>
+                        <span class="px-2 md:px-3 py-1 rounded-full text-[10px] md:text-xs font-extrabold tracking-wide ${percentage >= 75 ? 'bg-green-100 text-green-800' : percentage > 0 ? 'bg-red-100 text-red-800' : 'bg-slate-100 text-slate-400'}">${percentage}%</span>
                     </td>
                 </tr>`;
             }).join('');
@@ -1685,7 +2085,7 @@
                 <div class="flex flex-col sm:flex-row justify-between items-center mb-6 print:hidden gap-3">
                     <button onclick="window.closeAttendanceReport()" class="w-full sm:w-auto px-5 py-2.5 bg-white border border-slate-300 rounded-xl hover:bg-slate-50 font-bold shadow-sm text-slate-700 transition-colors">← Back</button>
                     <button onclick="window.print()" class="w-full sm:w-auto px-6 py-2.5 bg-orange-500 text-white rounded-xl hover:bg-orange-600 font-bold flex items-center justify-center space-x-2 shadow-sm transition-colors">
-                        <i data-lucide="printer" class="w-4 h-4"></i> <span>Print Report</span>
+                        <i data-lucide="printer" class="w-4 h-4"></i> <span>Print Batch Report</span>
                     </button>
                 </div>
                 
@@ -1717,7 +2117,7 @@
                         
                         <div class="flex flex-col sm:flex-row space-y-3 sm:space-y-0 sm:space-x-8 mb-6 px-2">
                             <div class="flex items-center space-x-2"><div class="w-4 h-4 rounded-sm bg-slate-200 border border-slate-300"></div><span class="text-xs md:text-sm font-extrabold text-slate-700">Total Students: ${data.students.length}</span></div>
-                            <div class="flex items-center space-x-2"><div class="w-4 h-4 rounded-sm bg-orange-100 border border-orange-300"></div><span class="text-xs md:text-sm font-extrabold text-slate-700">Average Class Attendance: <span class="${avgAttendance < 75 ? 'text-red-600' : 'text-green-600'}">${avgAttendance}%</span></span></div>
+                            <div class="flex items-center space-x-2"><div class="w-4 h-4 rounded-sm bg-orange-100 border border-orange-300"></div><span class="text-xs md:text-sm font-extrabold text-slate-700">Days Logged: ${validDates.length}</span></div>
                         </div>
                         
                         <table class="w-full text-left border-collapse border-2 border-slate-300 mb-12">
@@ -1726,7 +2126,7 @@
                                     <th class="p-2 md:p-3.5 border-r border-slate-300 text-center w-10 md:w-12">#</th>
                                     <th class="p-2 md:p-3.5 border-r border-slate-300">Student ID</th>
                                     <th class="p-2 md:p-3.5 border-r border-slate-300">Student Name</th>
-                                    <th class="p-2 md:p-3.5 border-r border-slate-300 text-center">Total Classes</th>
+                                    <th class="p-2 md:p-3.5 border-r border-slate-300 text-center">Total Marked</th>
                                     <th class="p-2 md:p-3.5 border-r border-slate-300 text-center text-green-700">Present</th>
                                     <th class="p-2 md:p-3.5 border-r border-slate-300 text-center text-red-700">Absent</th>
                                     <th class="p-2 md:p-3.5 text-center">Attendance %</th>
@@ -1753,6 +2153,137 @@
                                     </div>
                                     <p class="text-[10px] md:text-sm font-bold text-slate-700 uppercase tracking-wide">Center Head / Admin</p>
                                 </label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+        }
+
+        // --- INDIVIDUAL STUDENT ATTENDANCE REPORT TEMPLATE (Printable) ---
+        function IndividualReportTemplate() {
+            const data = state.individualReportData;
+            const [year, month] = data.month.split('-');
+            const formattedMonth = new Date(data.month + '-01').toLocaleString('en-IN', { month: 'long', year: 'numeric' });
+            const daysInMonth = new Date(year, month, 0).getDate();
+            
+            let presentCount = 0;
+            let absentCount = 0;
+            let rowsHTML = '';
+            
+            for(let i=1; i<=daysInMonth; i++) {
+                const dateStr = `${year}-${month}-${i.toString().padStart(2, '0')}`;
+                const dayName = new Date(year, month-1, i).toLocaleDateString('en-IN', {weekday: 'short'});
+                const isSunday = new Date(year, month-1, i).getDay() === 0;
+                
+                const statusObj = data.attState[dateStr]?.[data.student.id];
+                const status = statusObj?.status;
+                const reason = statusObj?.reason || '-';
+                
+                let statusBadge = '<span class="text-slate-400 font-medium">- Unmarked -</span>';
+                if (status === 'Present') {
+                    presentCount++;
+                    statusBadge = '<span class="px-3 py-1 bg-green-100 text-green-700 font-bold rounded text-[10px] uppercase tracking-wide">Present</span>';
+                } else if (status === 'Absent') {
+                    absentCount++;
+                    statusBadge = '<span class="px-3 py-1 bg-red-100 text-red-700 font-bold rounded text-[10px] uppercase tracking-wide">Absent</span>';
+                } else if (isSunday) {
+                    statusBadge = '<span class="text-slate-400 font-medium italic">Sunday</span>';
+                }
+
+                rowsHTML += `
+                <tr class="border-b border-slate-200 text-xs md:text-sm ${isSunday ? 'bg-slate-100' : 'bg-white'}">
+                    <td class="p-2 md:p-3 border-r border-slate-300 text-center font-bold text-slate-600">${i}</td>
+                    <td class="p-2 md:p-3 border-r border-slate-300 font-bold text-slate-800">${dateStr}</td>
+                    <td class="p-2 md:p-3 border-r border-slate-300 font-medium text-slate-500">${dayName}</td>
+                    <td class="p-2 md:p-3 border-r border-slate-300 text-center">${statusBadge}</td>
+                    <td class="p-2 md:p-3 text-slate-600 italic text-[10px] md:text-xs">${reason !== '-' && reason !== '' ? reason : ''}</td>
+                </tr>`;
+            }
+            
+            const totalMarked = presentCount + absentCount;
+            const percentage = totalMarked > 0 ? Math.round((presentCount / totalMarked) * 100) : 0;
+
+            return `
+            <div class="p-4 sm:p-8 max-w-4xl mx-auto bg-gray-50 min-h-[100dvh] print:p-0 print:bg-white animate-fade-in">
+                <div class="flex flex-col sm:flex-row justify-between items-center mb-6 print:hidden gap-3">
+                    <button onclick="window.closeIndividualReport()" class="w-full sm:w-auto px-5 py-2.5 bg-white border border-slate-300 rounded-xl hover:bg-slate-50 font-bold shadow-sm text-slate-700 transition-colors">← Back</button>
+                    <button onclick="window.print()" class="w-full sm:w-auto px-6 py-2.5 bg-[#1F5FBF] text-white rounded-xl hover:bg-blue-800 font-bold flex items-center justify-center space-x-2 shadow-sm transition-colors">
+                        <i data-lucide="printer" class="w-4 h-4"></i> <span>Print Individual Sheet</span>
+                    </button>
+                </div>
+                
+                <div class="overflow-x-auto print:overflow-visible">
+                    <div class="bg-white p-6 md:p-10 rounded-2xl shadow-xl print:shadow-none print:p-6 border-t-[8px] md:border-t-[12px] border-[#1F5FBF] border-x border-b min-w-[700px]">
+                        <div class="flex justify-between items-center border-b-[3px] border-[#1F5FBF] pb-6 mb-6">
+                            <div class="w-20 h-20 md:w-28 md:h-28 flex items-center justify-center overflow-hidden bg-white">
+                                <img src="${state.formLogoUrl}" alt="UVA Logo" class="w-full h-full object-contain" />
+                            </div>
+                            <div class="flex-1 text-center px-4">
+                                <h1 class="text-2xl md:text-3xl font-extrabold text-[#0A1E4D] tracking-tight">UDAAN VIBRANT ACADEMY</h1>
+                                <p class="text-xs md:text-sm text-slate-600 italic mt-1 font-bold">"Where Learning Takes Flight"</p>
+                                <div class="mt-2 md:mt-3 inline-block bg-[#1F5FBF] text-white px-4 md:px-5 py-1.5 rounded-full font-bold uppercase tracking-widest text-[10px] md:text-xs shadow-sm">Individual Student Attendance Sheet</div>
+                            </div>
+                            <div class="w-20 h-20 md:w-28 md:h-28"></div>
+                        </div>
+                        
+                        <div class="flex justify-between items-center bg-blue-50 border-2 border-blue-200 p-4 md:p-5 rounded-xl mb-8">
+                            <div>
+                                <p class="text-[10px] md:text-[11px] text-blue-600 font-bold uppercase tracking-widest">Student Information</p>
+                                <p class="text-xl md:text-2xl font-black text-[#0A1E4D] mt-1">${data.student.name}</p>
+                                <p class="text-xs md:text-sm font-bold text-slate-600 mt-1.5">ID: <span class="font-mono text-[#1F5FBF]">${data.student.id}</span> | Batch: ${data.student.type === 'Skill' ? data.student.course : `${data.student.std} ${data.student.board}`}</p>
+                            </div>
+                            <div class="text-right flex flex-col items-end">
+                                <p class="text-[10px] md:text-[11px] text-blue-600 font-bold uppercase tracking-widest mb-1">Month Selected</p>
+                                <span class="bg-[#0A1E4D] text-white px-4 py-1.5 rounded-lg text-sm font-bold shadow-sm">${formattedMonth}</span>
+                            </div>
+                        </div>
+                        
+                        <div class="grid grid-cols-4 gap-4 mb-6">
+                            <div class="bg-slate-50 border border-slate-200 p-3 rounded-xl text-center">
+                                <p class="text-[10px] font-bold text-slate-500 uppercase">Marked Days</p>
+                                <p class="text-xl font-black text-slate-800">${totalMarked}</p>
+                            </div>
+                            <div class="bg-green-50 border border-green-200 p-3 rounded-xl text-center">
+                                <p class="text-[10px] font-bold text-green-600 uppercase">Present</p>
+                                <p class="text-xl font-black text-green-700">${presentCount}</p>
+                            </div>
+                            <div class="bg-red-50 border border-red-200 p-3 rounded-xl text-center">
+                                <p class="text-[10px] font-bold text-red-600 uppercase">Absent</p>
+                                <p class="text-xl font-black text-red-700">${absentCount}</p>
+                            </div>
+                            <div class="bg-blue-50 border border-blue-200 p-3 rounded-xl text-center">
+                                <p class="text-[10px] font-bold text-blue-600 uppercase">Attendance %</p>
+                                <p class="text-xl font-black ${percentage >= 75 ? 'text-green-600' : 'text-red-600'}">${percentage}%</p>
+                            </div>
+                        </div>
+                        
+                        <table class="w-full text-left border-collapse border-2 border-slate-300 mb-12">
+                            <thead>
+                                <tr class="bg-slate-100 border-b-2 border-slate-300 text-[10px] md:text-[11px] font-extrabold text-slate-800 uppercase tracking-wider">
+                                    <th class="p-2 md:p-3 border-r border-slate-300 text-center w-10 md:w-12">Date</th>
+                                    <th class="p-2 md:p-3 border-r border-slate-300">Full Date</th>
+                                    <th class="p-2 md:p-3 border-r border-slate-300">Day</th>
+                                    <th class="p-2 md:p-3 border-r border-slate-300 text-center">Status</th>
+                                    <th class="p-2 md:p-3">Reason / Remarks (If Absent)</th>
+                                </tr>
+                            </thead>
+                            <tbody>${rowsHTML}</tbody>
+                        </table>
+                        
+                        <div class="flex justify-between items-end mt-12 md:mt-16 pt-8 border-t-2 border-slate-200">
+                            <div class="text-center group relative cursor-pointer">
+                                <label>
+                                    <input type="file" accept="image/*" onchange="window.handleImageUpload(this, 'adminSignUrl')" class="hidden print:hidden" />
+                                    <div class="w-32 md:w-56 border-b-2 border-slate-400 mb-2 h-12 flex items-end justify-center">
+                                        ${state.adminSignUrl ? `<img src="${state.adminSignUrl}" class="max-h-12 object-contain" />` : `<span class="text-xs text-slate-300 print:hidden font-medium">Click to Sign</span>`}
+                                    </div>
+                                    <p class="text-[10px] md:text-sm font-bold text-slate-700 uppercase tracking-wide">Faculty Signature</p>
+                                </label>
+                            </div>
+                            <div class="text-center group relative cursor-pointer">
+                                <div class="w-32 md:w-56 border-b-2 border-slate-400 mb-2 h-12 flex items-end justify-center"></div>
+                                <p class="text-[10px] md:text-sm font-bold text-slate-700 uppercase tracking-wide">Parent's Signature</p>
                             </div>
                         </div>
                     </div>
