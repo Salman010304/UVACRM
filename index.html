@@ -587,7 +587,7 @@
                 city: fd.get('city') || '',
                 state: fd.get('state') || 'Gujarat',
                 pincode: fd.get('pincode') || '',
-                batchTiming: fd.get('batchTiming') || 'To be assigned',
+                batchTiming: fd.get('batchTiming') || (fd.get('batchTimingSkill') ? `Skill: ${fd.get('batchTimingSkill')} | Tuit: ${fd.get('batchTimingTuition')}` : 'To be assigned'),
                 parentName: fd.get('parentName') || 'Not Provided',
                 parentPhone: fd.get('parentPhone') || '-',
                 parentOccupation: fd.get('parentOccupation') || '-',
@@ -629,11 +629,23 @@
             render();
         };
 
+        window.updateEditStudentType = (val) => {
+            if (state.editingStudentData) {
+                state.editingStudentData.type = val;
+                render();
+            }
+        };
+
         window.confirmEditStudent = (e) => {
             e.preventDefault();
             const fd = new FormData(e.target);
             const index = state.students.findIndex(s => s.id === state.editingStudentData.id);
             if (index !== -1) {
+                const pType = fd.get('progTypeEdit') || state.editingStudentData.type;
+                const bTiming = pType === 'Both' && fd.get('batchTimingSkill') 
+                                ? `Skill: ${fd.get('batchTimingSkill')} | Tuit: ${fd.get('batchTimingTuition')}`
+                                : (fd.get('batchTiming') || state.students[index].batchTiming);
+
                 state.students[index] = {
                     ...state.students[index],
                     name: fd.get('name') || state.students[index].name,
@@ -642,7 +654,12 @@
                     dob: fd.get('dob') || state.students[index].dob,
                     gender: fd.get('gender') || state.students[index].gender,
                     bloodGroup: fd.get('bloodGroup') || state.students[index].bloodGroup,
-                    batchTiming: fd.get('batchTiming') || state.students[index].batchTiming,
+                    type: pType,
+                    course: fd.get('courseEdit') || state.students[index].course,
+                    std: fd.get('stdEdit') || state.students[index].std,
+                    board: fd.get('boardEdit') || state.students[index].board,
+                    medium: fd.get('mediumEdit') || state.students[index].medium,
+                    batchTiming: bTiming,
                     freeOffer: fd.get('freeOffer') || state.students[index].freeOffer,
                     address: fd.get('address') || state.students[index].address,
                     city: fd.get('city') || state.students[index].city,
@@ -699,22 +716,55 @@
 
         window.handleImageUpload = (input, type, studentId = null) => {
             if (input.files && input.files[0]) {
+                const file = input.files[0];
                 const reader = new FileReader();
-                reader.onload = async (e) => { 
-                    const base64 = e.target.result;
-                    if (studentId) {
-                        const std = state.students.find(s => s.id === studentId);
-                        if (std) {
-                            std[type] = base64; // photoUrl, studentSignUrl, parentSignUrl, docAadhaar, etc.
+                reader.onload = (e) => { 
+                    const img = new Image();
+                    img.onload = async () => {
+                        // SMART COMPRESSION: Create a canvas to compress the image before saving
+                        const canvas = document.createElement('canvas');
+                        let width = img.width;
+                        let height = img.height;
+                        
+                        // Maximum dimensions for high-quality A4 printing without bloated DB sizes
+                        const MAX_WIDTH = 1000;
+                        const MAX_HEIGHT = 1000;
+                        
+                        if (width > height) {
+                            if (width > MAX_WIDTH) {
+                                height *= MAX_WIDTH / width;
+                                width = MAX_WIDTH;
+                            }
+                        } else {
+                            if (height > MAX_HEIGHT) {
+                                width *= MAX_HEIGHT / height;
+                                height = MAX_HEIGHT;
+                            }
                         }
-                    } else {
-                        state[type] = base64; // formLogoUrl, appIconUrl, adminSignUrl
-                        if(type === 'appIconUrl') setupPWA();
-                    }
-                    await window.saveDataToCloud();
-                    render(); 
+                        
+                        canvas.width = width;
+                        canvas.height = height;
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0, width, height);
+                        
+                        // Compress to JPEG format with 70% quality (drastically reduces base64 size)
+                        const compressedBase64 = canvas.toDataURL('image/jpeg', 0.7);
+
+                        if (studentId) {
+                            const std = state.students.find(s => s.id === studentId);
+                            if (std) {
+                                std[type] = compressedBase64; // photoUrl, studentSignUrl, docAadhaar, etc.
+                            }
+                        } else {
+                            state[type] = compressedBase64; // formLogoUrl, appIconUrl, adminSignUrl
+                            if(type === 'appIconUrl') setupPWA();
+                        }
+                        await window.saveDataToCloud();
+                        render(); 
+                    };
+                    img.src = e.target.result;
                 };
-                reader.readAsDataURL(input.files[0]);
+                reader.readAsDataURL(file);
             }
         };
 
@@ -746,22 +796,24 @@
         };
 
         window.toggleAttendance = (id, status) => {
+            const attKey = `${id}_${state.attSelectedBatch}`;
             if (!state.attState[state.attDate]) state.attState[state.attDate] = {};
-            if (!state.attState[state.attDate][id]) state.attState[state.attDate][id] = { status: null, reason: '' };
+            if (!state.attState[state.attDate][attKey]) state.attState[state.attDate][attKey] = { status: null, reason: '' };
             
-            if (state.attState[state.attDate][id].status === status) {
-                // If user clicks the exact same button again, unselect it.
-                state.attState[state.attDate][id].status = null;
+            if (state.attState[state.attDate][attKey].status === status) {
+                state.attState[state.attDate][attKey].status = null;
             } else {
-                // Otherwise assign the selected status
-                state.attState[state.attDate][id].status = status;
+                state.attState[state.attDate][attKey].status = status;
             }
             render();
         };
 
         window.updateAttReason = (id, val) => {
-            if (state.attState[state.attDate] && state.attState[state.attDate][id]) {
-                state.attState[state.attDate][id].reason = val;
+            const attKey = `${id}_${state.attSelectedBatch}`;
+            if (state.attState[state.attDate] && state.attState[state.attDate][attKey]) {
+                state.attState[state.attDate][attKey].reason = val;
+            } else if (state.attState[state.attDate] && state.attState[state.attDate][id]) {
+                state.attState[state.attDate][id].reason = val; // Fallback for old data
             }
         };
 
@@ -770,7 +822,8 @@
                 const currentStudents = getFilteredStudents();
                 if (state.attState[state.attDate]) {
                     currentStudents.forEach(s => {
-                        delete state.attState[state.attDate][s.id];
+                        delete state.attState[state.attDate][`${s.id}_${state.attSelectedBatch}`];
+                        delete state.attState[state.attDate][s.id]; // Delete old format if exists
                     });
                 }
                 render();
@@ -780,7 +833,10 @@
         window.notifyAbsentees = () => {
             const filtered = getFilteredStudents();
             const dateData = state.attState[state.attDate] || {};
-            const absentees = filtered.filter(s => dateData[s.id]?.status === 'Absent');
+            const absentees = filtered.filter(s => {
+                const st = dateData[`${s.id}_${state.attSelectedBatch}`]?.status || dateData[s.id]?.status;
+                return st === 'Absent';
+            });
             if(absentees.length === 0) {
                 alert("No explicitly marked absentees to notify for this date!"); return;
             }
@@ -804,6 +860,7 @@
             state.individualReportData = {
                 student: state.students.find(s => s.id === id),
                 month: state.attReportMonth,
+                batch: state.attSelectedBatch,
                 attState: state.attState
             };
             render();
@@ -918,17 +975,31 @@
         window.updateAdmOfferFilter = (val) => { state.admOfferFilter = val; render(); };
 
         function getBatches() {
-            const b = state.students
-                .filter(s => state.attFilterCategory === 'All' || s.type === state.attFilterCategory)
-                .map(s => s.type === 'Skill' ? s.course : `${s.std} ${s.board} ${s.medium}`);
-            return [...new Set(b)];
+            const b = new Set();
+            state.students.forEach(s => {
+                const isSkill = s.type === 'Skill' || s.type === 'Both';
+                const isTuition = s.type === 'Tuition' || s.type === 'Both';
+                
+                if (isSkill && (state.attFilterCategory === 'All' || state.attFilterCategory === 'Skill')) {
+                    if(s.course) b.add(s.course);
+                }
+                if (isTuition && (state.attFilterCategory === 'All' || state.attFilterCategory === 'Tuition')) {
+                    if(s.std) b.add(`${s.std} ${s.board} ${s.medium}`);
+                }
+            });
+            return [...b];
         }
 
         function getFilteredStudents() {
             if (!state.attSelectedBatch) return [];
             return state.students.filter(s => {
-                const batchName = s.type === 'Skill' ? s.course : `${s.std} ${s.board} ${s.medium}`;
-                return batchName === state.attSelectedBatch && (state.attFilterCategory === 'All' || s.type === state.attFilterCategory);
+                const skillBatch = s.course;
+                const tuitionBatch = `${s.std} ${s.board} ${s.medium}`;
+                
+                const matchSkill = (s.type === 'Skill' || s.type === 'Both') && skillBatch === state.attSelectedBatch && (state.attFilterCategory === 'All' || state.attFilterCategory === 'Skill');
+                const matchTuition = (s.type === 'Tuition' || s.type === 'Both') && tuitionBatch === state.attSelectedBatch && (state.attFilterCategory === 'All' || state.attFilterCategory === 'Tuition');
+                
+                return matchSkill || matchTuition;
             });
         }
 
@@ -1249,23 +1320,21 @@
             if(state.showNewInquiryForm) {
                 const d = state.newInquiryData;
                 let dynamicFields = '';
-                if(d.type === 'Skill') {
-                    const options = Object.keys(SKILL_COURSES).map(c => `<option value="${c}" ${d.course===c?'selected':''}>${c}</option>`).join('');
-                    dynamicFields = `
+                
+                const skillHTML = `
                     <div class="col-span-1 md:col-span-3">
                         <label class="block text-sm font-bold text-slate-600 mb-1.5">Select Professional Course</label>
                         <select required onchange="window.updateNewInquiryData('course', this.value)" class="w-full p-2.5 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 bg-white text-sm">
-                            <option value="">-- Select Course --</option>${options}
+                            <option value="">-- Select Course --</option>${Object.keys(SKILL_COURSES).map(c => `<option value="${c}" ${d.course===c?'selected':''}>${c}</option>`).join('')}
                         </select>
                     </div>`;
-                } else {
-                    const stdOpts = TUITION_CLASSES.map(c => `<option value="${c}" ${d.std===c?'selected':''}>${c}</option>`).join('');
-                    dynamicFields = `
+                    
+                const tuitionHTML = `
                     <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-5 col-span-1 md:col-span-3">
                         <div>
                             <label class="block text-sm font-bold text-slate-600 mb-1.5">Standard</label>
                             <select required onchange="window.updateNewInquiryData('std', this.value)" class="w-full p-2.5 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 bg-white text-sm">
-                                <option value="">Select Class</option>${stdOpts}
+                                <option value="">Select Class</option>${TUITION_CLASSES.map(c => `<option value="${c}" ${d.std===c?'selected':''}>${c}</option>`).join('')}
                             </select>
                         </div>
                         <div>
@@ -1285,7 +1354,10 @@
                             </select>
                         </div>
                     </div>`;
-                }
+
+                if(d.type === 'Skill') dynamicFields = skillHTML;
+                else if(d.type === 'Tuition') dynamicFields = tuitionHTML;
+                else if(d.type === 'Both') dynamicFields = `<div class="space-y-4 col-span-1 md:col-span-3 w-full">${skillHTML}${tuitionHTML}</div>`;
 
                 const formTitle = state.editingInquiryId ? 'Update Lead Details' : 'Capture Lead Details';
                 const submitBtn = state.editingInquiryId ? 'Update Lead' : 'Save Lead';
@@ -1323,7 +1395,11 @@
                                 </label>
                                 <label class="flex items-center space-x-2 cursor-pointer">
                                     <input type="radio" name="progType" onchange="window.updateNewInquiryData('type', 'Tuition')" ${d.type==='Tuition'?'checked':''} class="w-4 h-4 text-orange-500 focus:ring-orange-500 border-slate-300" />
-                                    <span class="font-bold text-slate-700 text-sm">Academic Tuition (9-12)</span>
+                                    <span class="font-bold text-slate-700 text-sm">Academic Tuition</span>
+                                </label>
+                                <label class="flex items-center space-x-2 cursor-pointer">
+                                    <input type="radio" name="progType" onchange="window.updateNewInquiryData('type', 'Both')" ${d.type==='Both'?'checked':''} class="w-4 h-4 text-orange-500 focus:ring-orange-500 border-slate-300" />
+                                    <span class="font-bold text-slate-700 text-sm">Both (Combo)</span>
                                 </label>
                             </div>
                             ${dynamicFields}
@@ -1338,12 +1414,12 @@
             }
 
             let tableHTML = state.inquiries.map(inq => {
-                const badgeClass = inq.type === 'Skill' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700';
+                const badgeClass = inq.type === 'Both' ? 'bg-indigo-100 text-indigo-700' : (inq.type === 'Skill' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700');
                 const statusClass = inq.status === 'Enrolled' ? 'bg-green-50 text-green-700 border-green-200' :
                                     inq.status === 'New' ? 'bg-blue-50 text-blue-700 border-blue-200' :
                                     inq.status === 'Closed' ? 'bg-red-50 text-red-700 border-red-200' : 'bg-orange-50 text-orange-700 border-orange-200';
                 
-                const interestStr = inq.type === 'Skill' ? inq.course : `${inq.std} | ${inq.board} | ${inq.medium}`;
+                const interestStr = inq.type === 'Both' ? `${inq.course} + ${inq.std}` : (inq.type === 'Skill' ? inq.course : `${inq.std} | ${inq.board} | ${inq.medium}`);
                 
                 let actionsHTML = `
                     <button title="Send WhatsApp Welcome" onclick="window.openWhatsApp('${inq.phone}', 'welcome_inquiry', '${inq.name}', '${interestStr}')" class="p-2 text-green-600 hover:bg-green-100 rounded-lg transition-colors">
@@ -1432,8 +1508,18 @@
         function EnrollModalTemplate() {
             if (!state.enrollingLead) return '';
             const l = state.enrollingLead;
-            const programName = l.type === 'Skill' ? l.course : `${l.std} ${l.board}`;
+            const programName = l.type === 'Both' ? `${l.course} & ${l.std} ${l.board}` : (l.type === 'Skill' ? l.course : `${l.std} ${l.board}`);
             
+            let batchInputs = '';
+            if (l.type === 'Both') {
+                batchInputs = `
+                    <div><label class="block text-xs font-bold text-slate-600 mb-1">Skill Batch Timing</label><input type="text" name="batchTimingSkill" placeholder="e.g. 4 PM - 6 PM" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 text-sm font-medium text-slate-700" /></div>
+                    <div><label class="block text-xs font-bold text-slate-600 mb-1">Tuition Batch Timing</label><input type="text" name="batchTimingTuition" placeholder="e.g. 6 PM - 8 PM" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 text-sm font-medium text-slate-700" /></div>
+                `;
+            } else {
+                batchInputs = `<div class="sm:col-span-2"><label class="block text-xs font-bold text-slate-600 mb-1">Preferred Batch</label><input type="text" name="batchTiming" placeholder="e.g. 4 PM - 6 PM" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 text-sm font-medium text-slate-700" /></div>`;
+            }
+
             return `
             <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-3 sm:p-4 animate-fade-in">
                 <div class="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[85vh] md:max-h-[90vh] overflow-y-auto border border-slate-200">
@@ -1448,6 +1534,13 @@
                     </div>
                     
                     <form onsubmit="window.confirmEnroll(event)" class="p-4 md:p-8 space-y-6 md:space-y-8">
+                        <datalist id="offer-list">
+                            <option value="None"></option>
+                            <option value="Free Soft Skills Classes"></option>
+                            <option value="Free Computer Training"></option>
+                            <option value="Free Spoken English"></option>
+                            <option value="10% Combo Discount"></option>
+                        </datalist>
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8">
                             <!-- Student Details -->
                             <div class="space-y-4 md:space-y-5">
@@ -1465,8 +1558,8 @@
                                             <option value="">Select</option><option value="A+">A+</option><option value="A-">A-</option><option value="B+">B+</option><option value="B-">B-</option><option value="O+">O+</option><option value="O-">O-</option><option value="AB+">AB+</option><option value="AB-">AB-</option>
                                         </select>
                                     </div>
-                                    <div class="sm:col-span-2"><label class="block text-xs font-bold text-slate-600 mb-1">Preferred Batch</label><input type="text" name="batchTiming" placeholder="e.g. 4 PM - 6 PM" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 text-sm font-medium text-slate-700" /></div>
-                                    <div class="sm:col-span-2"><label class="block text-xs font-bold text-slate-600 mb-1">Free Add-on Course (Offer)</label><input type="text" name="freeOffer" placeholder="e.g. Soft Skills (Free) or None" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 text-sm font-medium text-slate-700" /></div>
+                                    ${batchInputs}
+                                    <div class="sm:col-span-2"><label class="block text-xs font-bold text-slate-600 mb-1">Free Add-on Course (Offer)</label><input type="text" list="offer-list" name="freeOffer" placeholder="Type or select an offer..." class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 text-sm font-medium text-slate-700" /></div>
                                 </div>
                                 <div><label class="block text-xs font-bold text-slate-600 mb-1">Residential Address</label><textarea rows="2" name="address" placeholder="Flat/House No, Area, Street" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 text-sm font-medium text-slate-700"></textarea></div>
                                 <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-5 mt-2">
@@ -1498,16 +1591,27 @@
         }
 
         function AdmissionsTemplate() {
-            const activeCourses = [...new Set(state.students
-                .filter(s => state.admProgramFilter === 'All' || s.type === state.admProgramFilter)
-                .map(s => s.type === 'Skill' ? s.course : `${s.std} ${s.board} ${s.medium}`)
-            )];
+            const courseSet = new Set();
+            state.students.forEach(s => {
+                if (state.admProgramFilter === 'All' || state.admProgramFilter === 'Skill' || s.type === 'Both') {
+                    if(s.course && (s.type === 'Skill' || s.type === 'Both')) courseSet.add(s.course);
+                }
+                if (state.admProgramFilter === 'All' || state.admProgramFilter === 'Tuition' || s.type === 'Both') {
+                    if(s.std && (s.type === 'Tuition' || s.type === 'Both')) courseSet.add(`${s.std} ${s.board} ${s.medium}`);
+                }
+            });
+            const activeCourses = [...courseSet];
 
             let filteredStudents = state.students.filter(std => {
                 const matchesSearch = std.name.toLowerCase().includes(state.admSearchQuery.toLowerCase()) || std.id.toLowerCase().includes(state.admSearchQuery.toLowerCase());
-                const matchesProgram = state.admProgramFilter === 'All' || std.type === state.admProgramFilter;
-                const stdCourse = std.type === 'Skill' ? std.course : `${std.std} ${std.board} ${std.medium}`;
-                const matchesCourse = state.admCourseFilter === 'All' || stdCourse === state.admCourseFilter;
+                const matchesProgram = state.admProgramFilter === 'All' || std.type === state.admProgramFilter || std.type === 'Both';
+                
+                const stdCourseSkill = std.course;
+                const stdCourseTuition = `${std.std} ${std.board} ${std.medium}`;
+                
+                const matchesCourse = state.admCourseFilter === 'All' || 
+                    ((std.type === 'Skill' || std.type === 'Both') && stdCourseSkill === state.admCourseFilter) ||
+                    ((std.type === 'Tuition' || std.type === 'Both') && stdCourseTuition === state.admCourseFilter);
                 
                 const hasOffer = std.freeOffer && std.freeOffer !== 'None';
                 const matchesOffer = state.admOfferFilter === 'All' || 
@@ -1517,7 +1621,7 @@
             });
 
             let stdHTML = filteredStudents.map(std => {
-                const courseName = std.type === 'Skill' ? std.course : `${std.std} | ${std.board} (${std.medium} Med.)`;
+                const courseName = std.type === 'Both' ? `${std.course} & ${std.std} ${std.board}` : (std.type === 'Skill' ? std.course : `${std.std} | ${std.board} (${std.medium} Med.)`);
                 const offerBadge = (std.freeOffer && std.freeOffer !== 'None') ? `<p class="text-[10px] md:text-xs text-orange-600 font-bold mt-1.5 bg-orange-50 inline-block px-2.5 py-0.5 rounded border border-orange-200">Offer Applied: ${std.freeOffer}</p>` : '';
                 return `
                 <div class="bg-white p-4 md:p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between md:items-center gap-4 md:gap-6 hover:shadow-md transition-shadow">
@@ -1597,7 +1701,68 @@
         function EditStudentModalTemplate() {
             if (!state.editingStudentData) return '';
             const std = state.editingStudentData;
+            const d = state.editingStudentData;
             
+            let dynamicFields = '';
+            
+            const skillHTML = `
+                <div class="col-span-1 md:col-span-2 mt-4">
+                    <label class="block text-xs font-bold text-slate-600 mb-1">Select Professional Course</label>
+                    <select name="courseEdit" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 text-sm font-medium text-slate-700">
+                        <option value="">-- Select Course --</option>${Object.keys(SKILL_COURSES).map(c => `<option value="${c}" ${d.course===c?'selected':''}>${c}</option>`).join('')}
+                    </select>
+                </div>`;
+                
+            const tuitionHTML = `
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-5 col-span-1 md:col-span-2 mt-4">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 mb-1">Standard</label>
+                        <select name="stdEdit" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 text-sm font-medium text-slate-700">
+                            <option value="">Select Class</option>${TUITION_CLASSES.map(c => `<option value="${c}" ${d.std===c?'selected':''}>${c}</option>`).join('')}
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 mb-1">Board</label>
+                        <select name="boardEdit" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 text-sm font-medium text-slate-700">
+                            <option value="">Select Board</option>
+                            <option value="GSEB" ${d.board==='GSEB'?'selected':''}>GSEB</option>
+                            <option value="CBSE" ${d.board==='CBSE'?'selected':''}>CBSE</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 mb-1">Medium</label>
+                        <select name="mediumEdit" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 text-sm font-medium text-slate-700">
+                            <option value="">Select Medium</option>
+                            <option value="Gujarati" ${d.medium==='Gujarati'?'selected':''}>Gujarati</option>
+                            <option value="English" ${d.medium==='English'?'selected':''}>English</option>
+                        </select>
+                    </div>
+                </div>`;
+
+            if(d.type === 'Skill') dynamicFields = skillHTML;
+            else if(d.type === 'Tuition') dynamicFields = tuitionHTML;
+            else if(d.type === 'Both') dynamicFields = `<div class="space-y-0 w-full col-span-1 md:col-span-2">${skillHTML}${tuitionHTML}</div>`;
+
+            let batchInputs = '';
+            if (d.type === 'Both') {
+                let sBatch = '', tBatch = '';
+                if (d.batchTiming && d.batchTiming.includes('Skill:') && d.batchTiming.includes('Tuit:')) {
+                    const parts = d.batchTiming.split('|');
+                    sBatch = parts[0].replace('Skill:', '').trim();
+                    tBatch = parts[1].replace('Tuit:', '').trim();
+                } else {
+                    sBatch = d.batchTiming;
+                    tBatch = d.batchTiming;
+                }
+
+                batchInputs = `
+                    <div><label class="block text-xs font-bold text-slate-600 mb-1">Skill Batch Timing</label><input type="text" name="batchTimingSkill" value="${sBatch}" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 text-sm font-medium text-slate-700" /></div>
+                    <div><label class="block text-xs font-bold text-slate-600 mb-1">Tuition Batch Timing</label><input type="text" name="batchTimingTuition" value="${tBatch}" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 text-sm font-medium text-slate-700" /></div>
+                `;
+            } else {
+                batchInputs = `<div class="sm:col-span-2"><label class="block text-xs font-bold text-slate-600 mb-1">Preferred Batch</label><input type="text" name="batchTiming" value="${d.batchTiming || ''}" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 text-sm font-medium text-slate-700" /></div>`;
+            }
+
             return `
             <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-3 sm:p-4 animate-fade-in">
                 <div class="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[85vh] md:max-h-[90vh] overflow-y-auto border border-slate-200">
@@ -1632,8 +1797,36 @@
                                             <option value="-" ${std.bloodGroup==='-'?'selected':''}>-</option><option value="A+" ${std.bloodGroup==='A+'?'selected':''}>A+</option><option value="A-" ${std.bloodGroup==='A-'?'selected':''}>A-</option><option value="B+" ${std.bloodGroup==='B+'?'selected':''}>B+</option><option value="B-" ${std.bloodGroup==='B-'?'selected':''}>B-</option><option value="O+" ${std.bloodGroup==='O+'?'selected':''}>O+</option><option value="O-" ${std.bloodGroup==='O-'?'selected':''}>O-</option><option value="AB+" ${std.bloodGroup==='AB+'?'selected':''}>AB+</option><option value="AB-" ${std.bloodGroup==='AB-'?'selected':''}>AB-</option>
                                         </select>
                                     </div>
-                                    <div class="sm:col-span-2"><label class="block text-xs font-bold text-slate-600 mb-1">Preferred Batch</label><input type="text" name="batchTiming" value="${std.batchTiming}" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 text-sm font-medium text-slate-700" /></div>
-                                    <div class="sm:col-span-2"><label class="block text-xs font-bold text-slate-600 mb-1">Free Add-on Course (Offer)</label><input type="text" name="freeOffer" value="${std.freeOffer || 'None'}" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 text-sm font-medium text-slate-700" /></div>
+                                    
+                                    <!-- Program Update Selection -->
+                                    <div class="flex flex-col sm:flex-row space-y-3 sm:space-y-0 sm:space-x-4 mb-2 col-span-1 md:col-span-2 border-t border-slate-100 pt-4 mt-2">
+                                        <label class="flex items-center space-x-2 cursor-pointer">
+                                            <input type="radio" name="progTypeEdit" value="Skill" onchange="window.updateEditStudentType('Skill')" ${d.type==='Skill'?'checked':''} class="w-4 h-4 text-orange-500 focus:ring-orange-500 border-slate-300" />
+                                            <span class="font-bold text-slate-700 text-sm">Skill Academy</span>
+                                        </label>
+                                        <label class="flex items-center space-x-2 cursor-pointer">
+                                            <input type="radio" name="progTypeEdit" value="Tuition" onchange="window.updateEditStudentType('Tuition')" ${d.type==='Tuition'?'checked':''} class="w-4 h-4 text-orange-500 focus:ring-orange-500 border-slate-300" />
+                                            <span class="font-bold text-slate-700 text-sm">Academic Tuition</span>
+                                        </label>
+                                        <label class="flex items-center space-x-2 cursor-pointer">
+                                            <input type="radio" name="progTypeEdit" value="Both" onchange="window.updateEditStudentType('Both')" ${d.type==='Both'?'checked':''} class="w-4 h-4 text-orange-500 focus:ring-orange-500 border-slate-300" />
+                                            <span class="font-bold text-slate-700 text-sm">Both (Combo)</span>
+                                        </label>
+                                    </div>
+                                    ${dynamicFields}
+                                    ${batchInputs}
+
+                                    <div class="sm:col-span-2">
+                                        <label class="block text-xs font-bold text-slate-600 mb-1">Free Add-on Course (Offer)</label>
+                                        <input list="offer-list-edit" type="text" name="freeOffer" value="${std.freeOffer || 'None'}" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 text-sm font-medium text-slate-700" />
+                                        <datalist id="offer-list-edit">
+                                            <option value="None"></option>
+                                            <option value="Free Soft Skills Classes"></option>
+                                            <option value="Free Computer Training"></option>
+                                            <option value="Free Spoken English"></option>
+                                            <option value="10% Combo Discount"></option>
+                                        </datalist>
+                                    </div>
                                 </div>
                                 <div><label class="block text-xs font-bold text-slate-600 mb-1">Residential Address</label><textarea rows="2" name="address" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 text-sm font-medium text-slate-700">${std.address}</textarea></div>
                                 <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-5 mt-2">
@@ -1678,8 +1871,9 @@
                 let absentCount = 0;
 
                 let stdRows = filteredStudents.map(std => {
-                    const currentStatus = dateData[std.id]?.status || null; // Unmarked default
-                    const currentReason = dateData[std.id]?.reason || '';
+                    const attKey = `${std.id}_${state.attSelectedBatch}`;
+                    const currentStatus = dateData[attKey]?.status || dateData[std.id]?.status || null; // Unmarked default
+                    const currentReason = dateData[attKey]?.reason || dateData[std.id]?.reason || '';
                     
                     if (currentStatus === 'Present') presentCount++;
                     if (currentStatus === 'Absent') absentCount++;
@@ -1803,8 +1997,8 @@
         // --- RECEIPT TEMPLATE (Printable) ---
         function ReceiptViewTemplate() {
             const data = state.receiptData;
-            const programName = data.type === 'Skill' ? data.course : `${data.std} ${data.board}`;
-            const dur = data.type === 'Tuition' ? `${data.medium} Medium` : SKILL_COURSES[data.course]?.duration;
+            const programName = data.type === 'Both' ? `${data.course} & ${data.std} ${data.board}` : (data.type === 'Skill' ? data.course : `${data.std} ${data.board}`);
+            const dur = data.type === 'Both' ? `Combo Duration` : (data.type === 'Tuition' ? `${data.medium} Medium` : SKILL_COURSES[data.course]?.duration);
             
             const renderDocItem = (docKey, docName) => {
                 const isUploaded = !!data[docKey];
@@ -1941,10 +2135,10 @@
                                     </div>
                                     <div class="grid grid-cols-2 gap-x-6 gap-y-4 px-2 relative z-10">
                                         <div class="col-span-2 flex flex-col"><span class="pdf-label text-[#1F5FBF]/70">Selected Course <span class="text-red-500">*</span></span><div class="pdf-value text-[#1F5FBF] border-[#1F5FBF]/30">${programName}</div></div>
-                                        <div class="flex flex-col"><span class="pdf-label text-[#1F5FBF]/70">Program Category</span><div class="pdf-value border-[#1F5FBF]/30">${data.type === 'Skill' ? 'Professional & AI Skills' : 'Academic Tuition'}</div></div>
+                                        <div class="flex flex-col"><span class="pdf-label text-[#1F5FBF]/70">Program Category</span><div class="pdf-value border-[#1F5FBF]/30">${data.type === 'Both' ? 'Tuition + Professional Skills' : (data.type === 'Skill' ? 'Professional & AI Skills' : 'Academic Tuition')}</div></div>
                                         <div class="flex flex-col"><span class="pdf-label text-[#1F5FBF]/70">Duration / Medium</span><div class="pdf-value border-[#1F5FBF]/30">${dur}</div></div>
-                                        <div class="flex flex-col"><span class="pdf-label text-[#1F5FBF]/70">Preferred Batch Timing</span><div class="pdf-value border-[#1F5FBF]/30">${data.batchTiming}</div></div>
-                                        ${data.freeOffer && data.freeOffer !== 'None' ? `<div class="flex flex-col"><span class="pdf-label text-[#F59E0B]">Free Add-on Offer</span><div class="pdf-value text-[#D97706] border-[#F59E0B]/30">${data.freeOffer}</div></div>` : ''}
+                                        <div class="col-span-2 flex flex-col"><span class="pdf-label text-[#1F5FBF]/70">Preferred Batch Timing</span><div class="pdf-value border-[#1F5FBF]/30">${data.batchTiming}</div></div>
+                                        ${data.freeOffer && data.freeOffer !== 'None' ? `<div class="col-span-2 flex flex-col mt-2"><span class="pdf-label text-[#F59E0B]">Free Add-on Offer Applied</span><div class="pdf-value text-[#D97706] border-[#F59E0B]/30">${data.freeOffer}</div></div>` : ''}
                                     </div>
                                 </div>
 
@@ -2112,7 +2306,8 @@
             let stdHTML = data.students.map((std, index) => {
                 let p = 0, a = 0;
                 validDates.forEach(date => {
-                    const st = data.state[date]?.[std.id]?.status;
+                    const attKey = `${std.id}_${data.batch}`;
+                    const st = data.state[date]?.[attKey]?.status || data.state[date]?.[std.id]?.status;
                     if(st === 'Present') p++;
                     if(st === 'Absent') a++;
                 });
@@ -2230,7 +2425,8 @@
                 const dayName = new Date(year, month-1, i).toLocaleDateString('en-IN', {weekday: 'short'});
                 const isSunday = new Date(year, month-1, i).getDay() === 0;
                 
-                const statusObj = data.attState[dateStr]?.[data.student.id];
+                const attKey = `${data.student.id}_${data.batch}`;
+                const statusObj = data.attState[dateStr]?.[attKey] || data.attState[dateStr]?.[data.student.id];
                 const status = statusObj?.status;
                 const reason = statusObj?.reason || '-';
                 
@@ -2285,7 +2481,7 @@
                             <div>
                                 <p class="text-[10px] md:text-[11px] text-blue-600 font-bold uppercase tracking-widest">Student Information</p>
                                 <p class="text-xl md:text-2xl font-black text-[#0A1E4D] mt-1">${data.student.name}</p>
-                                <p class="text-xs md:text-sm font-bold text-slate-600 mt-1.5">ID: <span class="font-mono text-[#1F5FBF]">${data.student.id}</span> | Batch: ${data.student.type === 'Skill' ? data.student.course : `${data.student.std} ${data.student.board}`}</p>
+                                <p class="text-xs md:text-sm font-bold text-slate-600 mt-1.5">ID: <span class="font-mono text-[#1F5FBF]">${data.student.id}</span> | Batch: ${data.batch}</p>
                             </div>
                             <div class="text-right flex flex-col items-end">
                                 <p class="text-[10px] md:text-[11px] text-blue-600 font-bold uppercase tracking-widest mb-1">Month Selected</p>
