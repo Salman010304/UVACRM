@@ -63,14 +63,39 @@
         ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
         
         @media print {
-            body { background: white !important; }
+            @page { size: A4 portrait; margin: 0; }
+            body { background: white !important; width: 794px !important; min-width: 794px !important; margin: 0 auto !important; padding: 0 !important; }
             .print\:hidden { display: none !important; }
             .print\:p-0 { padding: 0 !important; }
             .print\:shadow-none { box-shadow: none !important; }
             .print\:overflow-visible { overflow: visible !important; }
             .print\:bg-white { background-color: white !important; }
             /* Reset mobile margins for print */
-            main { margin-bottom: 0 !important; }
+            main { margin-bottom: 0 !important; overflow: visible !important; }
+            .a4-wrapper { overflow: visible !important; padding: 0 !important; margin: 0 !important; }
+            .a4-document { margin: 0 !important; border: none !important; box-shadow: none !important; }
+        }
+
+        :root {
+            --doc-scale: 1;
+        }
+
+        @media screen and (max-width: 820px) {
+            .mobile-scale-target {
+                zoom: var(--doc-scale);
+            }
+            /* Firefox fallback for zoom */
+            @-moz-document url-prefix() {
+                .mobile-scale-target {
+                    transform: scale(var(--doc-scale));
+                    transform-origin: top center;
+                }
+                .a4-wrapper {
+                    height: calc(1123px * var(--doc-scale) + 40px);
+                    overflow: hidden;
+                    align-items: flex-start;
+                }
+            }
         }
 
         /* --- Premium A4 Document Styles --- */
@@ -220,7 +245,26 @@
             
             const mainContent = document.getElementById('main-scroll-area');
             if (mainContent && !state.receiptData && !state.attendanceReportData && !state.individualReportData) mainContent.scrollTop = 0;
+            
+            if(window.updateScale) window.updateScale();
         }
+
+        window.updateScale = () => {
+            if(window.innerWidth < 820) {
+                const scale = (window.innerWidth - 32) / 794;
+                document.documentElement.style.setProperty('--doc-scale', scale);
+            } else {
+                document.documentElement.style.setProperty('--doc-scale', '1');
+            }
+        };
+        window.addEventListener('resize', window.updateScale);
+
+        window.addEventListener('beforeprint', () => {
+             document.documentElement.style.setProperty('--doc-scale', '1');
+        });
+        window.addEventListener('afterprint', () => {
+             window.updateScale();
+        });
 
         // Render immediately so the app shows the loader gracefully
         render();
@@ -775,6 +819,9 @@
 
             const element = document.getElementById('premium-admission-document');
             
+            // TEMPORARILY DISABLE SCALE FOR FLAWLESS PDF GENERATION ON MOBILE
+            document.documentElement.style.setProperty('--doc-scale', '1');
+
             // Scroll to top to prevent html2canvas clipping bugs
             window.scrollTo(0, 0);
 
@@ -787,7 +834,13 @@
                 margin:       0,
                 filename:     pdfName,
                 image:        { type: 'jpeg', quality: 1.0 },
-                html2canvas:  { scale: 2, useCORS: true, scrollY: 0 },
+                html2canvas:  { 
+                    scale: 2, 
+                    useCORS: true, 
+                    scrollY: 0, 
+                    scrollX: 0, 
+                    windowWidth: 800 // CRITICAL: Forces full A4 width capture on mobile
+                },
                 jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
             };
 
@@ -795,6 +848,7 @@
                 html2pdf().set(opt).from(element).save().then(() => {
                     btn.innerHTML = originalText;
                     if(window.lucide) lucide.createIcons();
+                    window.updateScale(); // RESTORE SCALE AFTER DOWNLOAD
                 });
             }, 300);
         };
@@ -1808,7 +1862,7 @@
 
                 <!-- A4 Premium Document Wrapper -->
                 <div class="a4-wrapper print:p-0">
-                    <div id="premium-admission-document" class="a4-document bg-white flex flex-col print:shadow-none">
+                    <div id="premium-admission-document" class="a4-document mobile-scale-target bg-white flex flex-col print:shadow-none">
                         
                         <!-- Watermark -->
                         <img src="${state.formLogoUrl}" class="watermark-logo" />
@@ -2089,8 +2143,8 @@
                     </button>
                 </div>
                 
-                <div class="overflow-x-auto print:overflow-visible">
-                    <div class="bg-white p-6 md:p-10 rounded-2xl shadow-xl print:shadow-none print:p-6 border-t-[8px] md:border-t-[12px] border-slate-900 border-x border-b min-w-[700px]">
+                <div class="overflow-x-auto print:overflow-visible w-full flex justify-center">
+                    <div class="bg-white p-6 md:p-10 rounded-2xl shadow-xl print:shadow-none print:p-0 border-t-[8px] md:border-t-[12px] border-slate-900 border-x border-b w-[794px] min-w-[794px] max-w-[794px] mobile-scale-target flex-shrink-0">
                         <div class="flex justify-between items-center border-b-[3px] border-slate-800 pb-6 mb-6">
                             <div class="w-20 h-20 md:w-28 md:h-28 flex items-center justify-center overflow-hidden bg-white">
                                 <img src="${state.formLogoUrl}" alt="UVA Logo" class="w-full h-full object-contain" />
@@ -2213,8 +2267,8 @@
                     </button>
                 </div>
                 
-                <div class="overflow-x-auto print:overflow-visible">
-                    <div class="bg-white p-6 md:p-10 rounded-2xl shadow-xl print:shadow-none print:p-6 border-t-[8px] md:border-t-[12px] border-[#1F5FBF] border-x border-b min-w-[700px]">
+                <div class="overflow-x-auto print:overflow-visible w-full flex justify-center">
+                    <div class="bg-white p-6 md:p-10 rounded-2xl shadow-xl print:shadow-none print:p-0 border-t-[8px] md:border-t-[12px] border-[#1F5FBF] border-x border-b w-[794px] min-w-[794px] max-w-[794px] mobile-scale-target flex-shrink-0">
                         <div class="flex justify-between items-center border-b-[3px] border-[#1F5FBF] pb-6 mb-6">
                             <div class="w-20 h-20 md:w-28 md:h-28 flex items-center justify-center overflow-hidden bg-white">
                                 <img src="${state.formLogoUrl}" alt="UVA Logo" class="w-full h-full object-contain" />
