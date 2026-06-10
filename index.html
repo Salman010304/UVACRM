@@ -72,29 +72,27 @@
             .print\:bg-white { background-color: white !important; }
             /* Reset mobile margins for print */
             main { margin-bottom: 0 !important; overflow: visible !important; }
-            .a4-wrapper { overflow: visible !important; padding: 0 !important; margin: 0 !important; }
-            .a4-document { margin: 0 !important; border: none !important; box-shadow: none !important; }
+            .a4-wrapper { overflow: visible !important; padding: 0 !important; margin: 0 !important; height: auto !important; }
+            .a4-document { margin: 0 !important; border: none !important; box-shadow: none !important; zoom: 1 !important; transform: none !important; }
         }
 
         :root {
             --doc-scale: 1;
         }
 
-        @media screen and (max-width: 820px) {
+        .mobile-scale-target {
+            zoom: var(--doc-scale);
+        }
+        /* Firefox fallback for zoom */
+        @-moz-document url-prefix() {
             .mobile-scale-target {
-                zoom: var(--doc-scale);
+                transform: scale(var(--doc-scale));
+                transform-origin: top center;
             }
-            /* Firefox fallback for zoom */
-            @-moz-document url-prefix() {
-                .mobile-scale-target {
-                    transform: scale(var(--doc-scale));
-                    transform-origin: top center;
-                }
-                .a4-wrapper {
-                    height: calc(1123px * var(--doc-scale) + 40px);
-                    overflow: hidden;
-                    align-items: flex-start;
-                }
+            .a4-wrapper {
+                height: calc(1123px * var(--doc-scale) + 40px);
+                overflow: hidden;
+                align-items: flex-start;
             }
         }
 
@@ -249,7 +247,13 @@
             if(window.updateScale) window.updateScale();
         }
 
+        window.manualZoom = null;
+
         window.updateScale = () => {
+            if(window.manualZoom !== null) {
+                document.documentElement.style.setProperty('--doc-scale', window.manualZoom);
+                return;
+            }
             if(window.innerWidth < 820) {
                 const scale = (window.innerWidth - 32) / 794;
                 document.documentElement.style.setProperty('--doc-scale', scale);
@@ -257,6 +261,24 @@
                 document.documentElement.style.setProperty('--doc-scale', '1');
             }
         };
+        
+        window.zoomIn = () => {
+            let current = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--doc-scale')) || 1;
+            window.manualZoom = Math.min(current + 0.15, 2.5);
+            window.updateScale();
+        };
+
+        window.zoomOut = () => {
+            let current = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--doc-scale')) || 1;
+            window.manualZoom = Math.max(current - 0.15, 0.3);
+            window.updateScale();
+        };
+
+        window.resetZoom = () => {
+            window.manualZoom = null;
+            window.updateScale();
+        };
+
         window.addEventListener('resize', window.updateScale);
 
         window.addEventListener('beforeprint', () => {
@@ -874,10 +896,10 @@
             btn.innerHTML = `<i data-lucide="loader" class="w-4 h-4 mr-2 animate-spin"></i> Generating PDF...`;
             if(window.lucide) lucide.createIcons();
 
-            const element = document.getElementById('premium-admission-document');
-            
-            // TEMPORARILY DISABLE SCALE FOR FLAWLESS PDF GENERATION ON MOBILE
+            // TEMPORARILY DISABLE SCALE FOR FLAWLESS PDF GENERATION
             document.documentElement.style.setProperty('--doc-scale', '1');
+
+            const element = document.getElementById('premium-admission-document');
 
             // Scroll to top to prevent html2canvas clipping bugs
             window.scrollTo(0, 0);
@@ -896,7 +918,16 @@
                     useCORS: true, 
                     scrollY: 0, 
                     scrollX: 0, 
-                    windowWidth: 800 // CRITICAL: Forces full A4 width capture on mobile
+                    // Crucial fix: Clone element perfectly before capturing to bypass all PC/Windows display scaling issues
+                    onclone: (clonedDoc) => {
+                        const el = clonedDoc.getElementById('premium-admission-document');
+                        if (el) {
+                            el.style.zoom = '1';
+                            el.style.transform = 'none';
+                            el.style.width = '794px';
+                            el.style.height = '1123px';
+                        }
+                    }
                 },
                 jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
             };
@@ -1136,8 +1167,8 @@
 
         function MobileHeaderTemplate() {
             const installBtn = state.canInstall ? `
-                <button onclick="installPWA()" class="bg-orange-500 text-white p-1.5 rounded-lg shadow flex items-center space-x-1 hover:bg-orange-600 transition-colors animate-fade-in">
-                    <i data-lucide="download" class="w-4 h-4"></i><span class="text-[10px] font-bold tracking-wide uppercase pr-1">Install</span>
+                <button onclick="installPWA()" class="bg-orange-500 text-white p-1.5 rounded-lg shadow flex items-center space-x-1 hover:bg-orange-600 transition-colors animate-fade-in" title="Install Application">
+                    <i data-lucide="download" class="w-4 h-4"></i><span class="text-[10px] font-bold tracking-wide uppercase pr-1">Get App</span>
                 </button>
             ` : '';
 
@@ -1188,7 +1219,7 @@
             const installBtn = state.canInstall ? `
                 <button onclick="installPWA()" class="w-full bg-orange-500 text-white flex items-center justify-center space-x-2 px-4 py-3 rounded-xl hover:bg-orange-600 transition-colors shadow-lg shadow-orange-500/30 mb-2 animate-fade-in">
                     <i data-lucide="download" class="w-5 h-5"></i>
-                    <span class="font-bold tracking-wide uppercase text-sm">Install App</span>
+                    <span class="font-bold tracking-wide uppercase text-sm">Install App (PC/Mobile)</span>
                 </button>
             ` : '';
 
@@ -2030,9 +2061,18 @@
                 
                 <!-- Toolbar -->
                 <div class="w-full max-w-[794px] flex flex-col sm:flex-row justify-between items-center mb-4 print:hidden gap-3">
-                    <button onclick="window.closeReceipt()" class="w-full sm:w-auto px-5 py-2.5 bg-white border border-slate-300 rounded-xl hover:bg-slate-50 font-bold shadow-sm transition-colors text-slate-700 flex items-center justify-center">
-                        <i data-lucide="arrow-left" class="w-4 h-4 mr-2"></i> Back
-                    </button>
+                    <div class="flex items-center space-x-3 w-full sm:w-auto">
+                        <button onclick="window.closeReceipt()" class="px-5 py-2.5 bg-white border border-slate-300 rounded-xl hover:bg-slate-50 font-bold shadow-sm transition-colors text-slate-700 flex items-center justify-center">
+                            <i data-lucide="arrow-left" class="w-4 h-4 mr-2"></i> Back
+                        </button>
+                        <!-- Zoom Controls -->
+                        <div class="flex items-center space-x-1 bg-white border border-slate-300 rounded-xl px-2 py-1.5 shadow-sm">
+                            <button onclick="window.zoomOut()" class="p-1.5 hover:bg-slate-100 rounded text-slate-600 transition-colors" title="Zoom Out"><i data-lucide="zoom-out" class="w-4 h-4"></i></button>
+                            <button onclick="window.resetZoom()" class="px-2 text-[10px] uppercase tracking-widest font-bold text-slate-500 hover:text-slate-800 transition-colors" title="Reset Zoom">Fit</button>
+                            <button onclick="window.zoomIn()" class="p-1.5 hover:bg-slate-100 rounded text-slate-600 transition-colors" title="Zoom In"><i data-lucide="zoom-in" class="w-4 h-4"></i></button>
+                        </div>
+                    </div>
+                    
                     <div class="flex space-x-3 w-full sm:w-auto justify-end flex-wrap gap-y-2">
                         
                         <!-- Logo Resize Slider -->
@@ -2323,23 +2363,38 @@
                     <td class="p-2 md:p-3.5 border-r border-slate-300 text-center font-extrabold text-green-600">${p}</td>
                     <td class="p-2 md:p-3.5 border-r border-slate-300 text-center font-bold text-red-500">${a}</td>
                     <td class="p-2 md:p-3.5 text-center">
-                        <span class="px-2 md:px-3 py-1 rounded-full text-[10px] md:text-xs font-extrabold tracking-wide ${percentage >= 75 ? 'bg-green-100 text-green-800' : percentage > 0 ? 'bg-red-100 text-red-800' : 'bg-slate-100 text-slate-400'}">${percentage}%</span>
+                        <span class="px-2 md:px-3 py-1 rounded-full text-[10px] md:text-xs font-extrabold tracking-wide ${percentage >= 75 ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">${percentage}%</span>
                     </td>
                 </tr>`;
             }).join('');
+
             if(data.students.length === 0) stdHTML = `<tr><td colspan="7" class="p-8 text-center text-slate-500 font-medium">No students to report for this month.</td></tr>`;
 
             return `
-            <div class="p-4 sm:p-8 max-w-5xl mx-auto bg-gray-50 min-h-[100dvh] print:p-0 print:bg-white animate-fade-in">
-                <div class="flex flex-col sm:flex-row justify-between items-center mb-6 print:hidden gap-3">
-                    <button onclick="window.closeAttendanceReport()" class="w-full sm:w-auto px-5 py-2.5 bg-white border border-slate-300 rounded-xl hover:bg-slate-50 font-bold shadow-sm text-slate-700 transition-colors">← Back</button>
-                    <button onclick="window.print()" class="w-full sm:w-auto px-6 py-2.5 bg-orange-500 text-white rounded-xl hover:bg-orange-600 font-bold flex items-center justify-center space-x-2 shadow-sm transition-colors">
-                        <i data-lucide="printer" class="w-4 h-4"></i> <span>Print Batch Report</span>
-                    </button>
+            <div class="p-4 sm:p-8 max-w-5xl mx-auto bg-gray-50 min-h-[100dvh] print:p-0 print:bg-white animate-fade-in flex flex-col items-center">
+                
+                <!-- Toolbar -->
+                <div class="w-full max-w-[794px] flex flex-col sm:flex-row justify-between items-center mb-6 print:hidden gap-3">
+                    <div class="flex items-center space-x-3 w-full sm:w-auto">
+                        <button onclick="window.closeAttendanceReport()" class="px-5 py-2.5 bg-white border border-slate-300 rounded-xl hover:bg-slate-50 font-bold shadow-sm text-slate-700 transition-colors">← Back</button>
+                        
+                        <!-- Zoom Controls -->
+                        <div class="flex items-center space-x-1 bg-white border border-slate-300 rounded-xl px-2 py-1.5 shadow-sm">
+                            <button onclick="window.zoomOut()" class="p-1.5 hover:bg-slate-100 rounded text-slate-600 transition-colors" title="Zoom Out"><i data-lucide="zoom-out" class="w-4 h-4"></i></button>
+                            <button onclick="window.resetZoom()" class="px-2 text-[10px] uppercase tracking-widest font-bold text-slate-500 hover:text-slate-800 transition-colors" title="Reset Zoom">Fit</button>
+                            <button onclick="window.zoomIn()" class="p-1.5 hover:bg-slate-100 rounded text-slate-600 transition-colors" title="Zoom In"><i data-lucide="zoom-in" class="w-4 h-4"></i></button>
+                        </div>
+                    </div>
+
+                    <div class="flex space-x-3 w-full sm:w-auto justify-end">
+                        <button id="pdf-download-btn" onclick="window.generatePremiumPDF()" class="w-full sm:w-auto px-6 py-2.5 bg-orange-500 text-white rounded-xl hover:bg-orange-600 font-bold flex items-center justify-center space-x-2 shadow-sm transition-colors">
+                            <i data-lucide="download" class="w-4 h-4"></i> <span>Download PDF</span>
+                        </button>
+                    </div>
                 </div>
                 
                 <div class="overflow-x-auto print:overflow-visible w-full flex justify-center">
-                    <div class="bg-white p-6 md:p-10 rounded-2xl shadow-xl print:shadow-none print:p-0 border-t-[8px] md:border-t-[12px] border-slate-900 border-x border-b w-[794px] min-w-[794px] max-w-[794px] mobile-scale-target flex-shrink-0">
+                    <div id="premium-admission-document" class="bg-white p-6 md:p-10 rounded-2xl shadow-xl print:shadow-none print:p-0 border-t-[8px] md:border-t-[12px] border-slate-900 border-x border-b w-[794px] min-w-[794px] max-w-[794px] mobile-scale-target flex-shrink-0">
                         <div class="flex justify-between items-center border-b-[3px] border-slate-800 pb-6 mb-6">
                             <div class="w-20 h-20 md:w-28 md:h-28 flex items-center justify-center overflow-hidden bg-white">
                                 <img src="${state.formLogoUrl}" alt="UVA Logo" class="w-full h-full object-contain" />
@@ -2455,16 +2510,30 @@
             const percentage = totalMarked > 0 ? Math.round((presentCount / totalMarked) * 100) : 0;
 
             return `
-            <div class="p-4 sm:p-8 max-w-4xl mx-auto bg-gray-50 min-h-[100dvh] print:p-0 print:bg-white animate-fade-in">
-                <div class="flex flex-col sm:flex-row justify-between items-center mb-6 print:hidden gap-3">
-                    <button onclick="window.closeIndividualReport()" class="w-full sm:w-auto px-5 py-2.5 bg-white border border-slate-300 rounded-xl hover:bg-slate-50 font-bold shadow-sm text-slate-700 transition-colors">← Back</button>
-                    <button onclick="window.print()" class="w-full sm:w-auto px-6 py-2.5 bg-[#1F5FBF] text-white rounded-xl hover:bg-blue-800 font-bold flex items-center justify-center space-x-2 shadow-sm transition-colors">
-                        <i data-lucide="printer" class="w-4 h-4"></i> <span>Print Individual Sheet</span>
-                    </button>
+            <div class="p-4 sm:p-8 max-w-4xl mx-auto bg-gray-50 min-h-[100dvh] print:p-0 print:bg-white animate-fade-in flex flex-col items-center">
+                
+                <!-- Toolbar -->
+                <div class="w-full max-w-[794px] flex flex-col sm:flex-row justify-between items-center mb-6 print:hidden gap-3">
+                    <div class="flex items-center space-x-3 w-full sm:w-auto">
+                        <button onclick="window.closeIndividualReport()" class="px-5 py-2.5 bg-white border border-slate-300 rounded-xl hover:bg-slate-50 font-bold shadow-sm text-slate-700 transition-colors">← Back</button>
+                        
+                        <!-- Zoom Controls -->
+                        <div class="flex items-center space-x-1 bg-white border border-slate-300 rounded-xl px-2 py-1.5 shadow-sm">
+                            <button onclick="window.zoomOut()" class="p-1.5 hover:bg-slate-100 rounded text-slate-600 transition-colors" title="Zoom Out"><i data-lucide="zoom-out" class="w-4 h-4"></i></button>
+                            <button onclick="window.resetZoom()" class="px-2 text-[10px] uppercase tracking-widest font-bold text-slate-500 hover:text-slate-800 transition-colors" title="Reset Zoom">Fit</button>
+                            <button onclick="window.zoomIn()" class="p-1.5 hover:bg-slate-100 rounded text-slate-600 transition-colors" title="Zoom In"><i data-lucide="zoom-in" class="w-4 h-4"></i></button>
+                        </div>
+                    </div>
+
+                    <div class="flex space-x-3 w-full sm:w-auto justify-end">
+                        <button id="pdf-download-btn" onclick="window.generatePremiumPDF()" class="w-full sm:w-auto px-6 py-2.5 bg-[#1F5FBF] text-white rounded-xl hover:bg-blue-800 font-bold flex items-center justify-center space-x-2 shadow-sm transition-colors">
+                            <i data-lucide="download" class="w-4 h-4"></i> <span>Download Sheet</span>
+                        </button>
+                    </div>
                 </div>
                 
                 <div class="overflow-x-auto print:overflow-visible w-full flex justify-center">
-                    <div class="bg-white p-6 md:p-10 rounded-2xl shadow-xl print:shadow-none print:p-0 border-t-[8px] md:border-t-[12px] border-[#1F5FBF] border-x border-b w-[794px] min-w-[794px] max-w-[794px] mobile-scale-target flex-shrink-0">
+                    <div id="premium-admission-document" class="bg-white p-6 md:p-10 rounded-2xl shadow-xl print:shadow-none print:p-0 border-t-[8px] md:border-t-[12px] border-[#1F5FBF] border-x border-b w-[794px] min-w-[794px] max-w-[794px] mobile-scale-target flex-shrink-0">
                         <div class="flex justify-between items-center border-b-[3px] border-[#1F5FBF] pb-6 mb-6">
                             <div class="w-20 h-20 md:w-28 md:h-28 flex items-center justify-center overflow-hidden bg-white">
                                 <img src="${state.formLogoUrl}" alt="UVA Logo" class="w-full h-full object-contain" />
