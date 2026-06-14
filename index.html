@@ -73,7 +73,7 @@
             /* Reset mobile margins for print */
             main { margin-bottom: 0 !important; overflow: visible !important; }
             .a4-wrapper { overflow: visible !important; padding: 0 !important; margin: 0 !important; height: auto !important; }
-            .a4-document { margin: 0 !important; border: none !important; box-shadow: none !important; zoom: 1 !important; transform: none !important; }
+            .a4-document { margin: 0 !important; border: none !important; box-shadow: none !important; zoom: 1 !important; transform: none !important; height: 1115px !important; overflow: hidden !important; page-break-inside: avoid !important; }
         }
 
         :root {
@@ -90,7 +90,7 @@
                 transform-origin: top center;
             }
             .a4-wrapper {
-                height: calc(1123px * var(--doc-scale) + 40px);
+                height: auto;
                 overflow: hidden;
                 align-items: flex-start;
             }
@@ -108,9 +108,8 @@
             width: 794px !important; /* Exact A4 width at 96dpi */
             min-width: 794px !important;
             max-width: 794px !important;
-            height: 1123px !important; /* Exact A4 height at 96dpi */
-            min-height: 1123px !important;
-            max-height: 1123px !important;
+            height: 1115px !important; /* Fixed to prevent blank spillover pages */
+            max-height: 1115px !important;
             background-color: white;
             position: relative;
             box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
@@ -155,7 +154,7 @@
 </head>
 <body class="text-slate-800 bg-slate-50 font-sans h-[100dvh] overflow-hidden">
     
-    <!-- Initial Failsafe Loader to prevent Blank White Screens -->
+    <!-- Initial Failsafe Loader -->
     <div id="root" class="h-full">
         <div class="flex h-[100dvh] w-full items-center justify-center bg-slate-900 text-white">
             <div class="animate-pulse flex flex-col items-center">
@@ -166,7 +165,7 @@
         </div>
     </div>
 
-    <!-- FIREBASE SDK (Compat version allows running directly from local file:// paths) -->
+    <!-- FIREBASE SDK -->
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
@@ -216,23 +215,31 @@
             receiptData: null,
             attendanceReportData: null,
             individualReportData: null,
+            performanceReportData: null,
             waModalConfig: null,
             attFilterCategory: 'All',
             attSelectedBatch: '',
             attDate: new Date().toISOString().split('T')[0],
             attReportMonth: new Date().toISOString().slice(0, 7),
-            attState: {}, // Structure: { 'YYYY-MM-DD': { 'UVA-123': { status: 'Present', reason: '' } } }
+            attState: {}, 
             admSearchQuery: '',
             admProgramFilter: 'All',
             admCourseFilter: 'All',
             admOfferFilter: 'All',
             canInstall: false,
             editingInquiryId: null,
-            editingStudentData: null
+            editingStudentData: null,
+            performanceData: {},
+            perfFilterCategory: 'All',
+            perfSelectedBatch: '',
+            perfSelectedStudentId: null,
+            showAddTestModal: false
         };
 
         let unsubSnapshot = null;
         let app, auth, db;
+        let syncTimeout;
+        let deferredPrompt;
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'uva-erp';
 
         // --- SAFE RENDER ENGINE ---
@@ -242,7 +249,9 @@
             if(window.lucide) lucide.createIcons();
             
             const mainContent = document.getElementById('main-scroll-area');
-            if (mainContent && !state.receiptData && !state.attendanceReportData && !state.individualReportData) mainContent.scrollTop = 0;
+            if (mainContent && !state.receiptData && !state.attendanceReportData && !state.individualReportData && !state.performanceReportData) {
+                mainContent.scrollTop = 0;
+            }
             
             if(window.updateScale) window.updateScale();
         }
@@ -280,18 +289,80 @@
         };
 
         window.addEventListener('resize', window.updateScale);
+        window.addEventListener('beforeprint', () => document.documentElement.style.setProperty('--doc-scale', '1'));
+        window.addEventListener('afterprint', () => window.updateScale());
 
-        window.addEventListener('beforeprint', () => {
-             document.documentElement.style.setProperty('--doc-scale', '1');
-        });
-        window.addEventListener('afterprint', () => {
-             window.updateScale();
-        });
+        // --- ID GENERATION & MIGRATION ENGINE ---
+        window.getAcademicYear = (dateStr) => {
+            const date = new Date(dateStr);
+            const year = date.getFullYear();
+            const month = date.getMonth();
+            let startYear, endYear;
+            if (month >= 3) { startYear = year; endYear = year + 1; } 
+            else { startYear = year - 1; endYear = year; }
+            return `${startYear.toString().slice(-2)}-${endYear.toString().slice(-2)}`;
+        };
 
-        // Render immediately so the app shows the loader gracefully
+        window.migrateAndGetNextId = (dateStr) => {
+            let changed = false;
+            const idMap = {};
+            const yearCounts = {};
+
+            state.students.forEach(s => {
+                const match = s.id.match(/^UVA\/(\d{2}-\d{2})\/(\d{4})$/);
+                if (match) {
+                    const yearKey = match[1];
+                    const serial = parseInt(match[2], 10);
+                    if (!yearCounts[yearKey] || serial > yearCounts[yearKey]) {
+                        yearCounts[yearKey] = serial;
+                    }
+                }
+            });
+
+            const sortedStudents = [...state.students].sort((a, b) => new Date(a.date) - new Date(b.date));
+            sortedStudents.forEach(s => {
+                if (!/^UVA\/\d{2}-\d{2}\/\d{4}$/.test(s.id)) {
+                    const acYear = window.getAcademicYear(s.date);
+                    if (!yearCounts[acYear]) yearCounts[acYear] = 0;
+                    yearCounts[acYear]++;
+                    const newId = `UVA/${acYear}/${yearCounts[acYear].toString().padStart(4, '0')}`;
+                    idMap[s.id] = newId;
+                    s.id = newId;
+                    changed = true;
+                }
+            });
+
+            if (changed) {
+                const newAttState = {};
+                for (const date in state.attState) {
+                    newAttState[date] = {};
+                    for (const key in state.attState[date]) {
+                        let newKey = key;
+                        for (const oldId in idMap) {
+                            if (key === oldId) newKey = idMap[oldId];
+                            else if (key.startsWith(oldId + '_')) newKey = key.replace(oldId + '_', idMap[oldId] + '_');
+                        }
+                        newAttState[date][newKey] = state.attState[date][key];
+                    }
+                }
+                state.attState = newAttState;
+
+                const newPerfData = {};
+                for (const oldId in state.performanceData) {
+                    const newId = idMap[oldId] || oldId;
+                    newPerfData[newId] = state.performanceData[oldId];
+                }
+                state.performanceData = newPerfData;
+            }
+
+            const targetYear = window.getAcademicYear(dateStr || new Date().toISOString().split('T')[0]);
+            if (!yearCounts[targetYear]) yearCounts[targetYear] = 0;
+            const nextSerial = yearCounts[targetYear] + 1;
+            return { nextId: `UVA/${targetYear}/${nextSerial.toString().padStart(4, '0')}`, changed };
+        };
+
         render();
 
-        // FAILSAFE TIMEOUT: If Firebase takes longer than 4 seconds (blocked by host or offline), force login screen!
         setTimeout(() => {
             if (state.isAuthLoading) {
                 state.isAuthLoading = false;
@@ -312,7 +383,6 @@
                 measurementId: "G-C24RR5VWYV"
             };
             
-            // Safely parse injected config if it exists
             if (typeof __firebase_config !== 'undefined' && __firebase_config) {
                 try { config = JSON.parse(__firebase_config); } catch(e) {}
             }
@@ -334,7 +404,6 @@
                 }
             });
 
-            // Handle Immersive Environment Tokens
             if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
                 auth.signInWithCustomToken(__initial_auth_token).catch(e => {
                     console.error("Auth Token Error:", e);
@@ -344,7 +413,6 @@
 
         } catch (err) {
             console.error("Firebase Critical Error:", err);
-            // If Firebase is completely blocked by browser, drop to offline mode smoothly
             state.isAuthLoading = false;
             state.loginError = "Firebase connection blocked by browser. Please use 'Bypass Login (Test Mode)'.";
             render();
@@ -353,10 +421,7 @@
         // --- REAL-TIME SYNC ---
         function setupRealtimeSync(uid) {
              if (!db) return;
-             
-             // Using compat SDK syntax for firestore
              const docRef = db.collection('artifacts').doc(appId).collection('users').doc(uid).collection('data').doc('erp_state');
-             
              if (unsubSnapshot) unsubSnapshot(); 
              
              unsubSnapshot = docRef.onSnapshot((docSnap) => {
@@ -369,13 +434,17 @@
                      state.inquiries = data.inquiries || [];
                      state.students = data.students || [];
                      
-                     // Safe sync for updated attendance format (checks if old format is present and migrates to today's date safely)
                      if (data.attState && Object.keys(data.attState).length > 0 && !Object.keys(data.attState)[0].includes('-')) {
                          state.attState = {};
                          state.attState[new Date().toISOString().split('T')[0]] = data.attState;
                      } else {
                          state.attState = data.attState || {};
                      }
+                     state.performanceData = data.performanceData || {};
+
+                     // Run smart ID migration seamlessly
+                     const migrationResult = window.migrateAndGetNextId(new Date().toISOString().split('T')[0]);
+                     if (migrationResult.changed) window.saveDataToCloud();
                  }
                  render();
              }, (error) => {
@@ -383,7 +452,6 @@
              });
         }
 
-        let syncTimeout;
         window.saveDataToCloud = async () => {
             const dataToSave = {
                 appIconUrl: state.appIconUrl,
@@ -392,7 +460,8 @@
                 adminSignUrl: state.adminSignUrl || null,
                 inquiries: state.inquiries,
                 students: state.students,
-                attState: state.attState
+                attState: state.attState,
+                performanceData: state.performanceData
             };
 
             if (state.user && state.user.uid === 'bypassed_user') {
@@ -401,15 +470,12 @@
             }
 
             if (!state.user || !db) return;
-
             clearTimeout(syncTimeout);
             syncTimeout = setTimeout(async () => {
                 try {
                     const docRef = db.collection('artifacts').doc(appId).collection('users').doc(state.user.uid).collection('data').doc('erp_state');
                     await docRef.set(dataToSave, { merge: true });
-                } catch (e) {
-                    console.error("Cloud Sync Failed", e);
-                }
+                } catch (e) { console.error("Cloud Sync Failed", e); }
             }, 500);
         };
 
@@ -419,15 +485,17 @@
                     const stored = localStorage.getItem('uva_erp_data');
                     if (stored) {
                         const data = JSON.parse(stored);
-                        
-                        // Migration guard for old attendance structures offline
                         if (data.attState && Object.keys(data.attState).length > 0 && !Object.keys(data.attState)[0].includes('-')) {
                              const migratedAtt = {};
                              migratedAtt[new Date().toISOString().split('T')[0]] = data.attState;
                              data.attState = migratedAtt;
                         }
-
                         Object.assign(state, data);
+                        state.performanceData = data.performanceData || {};
+
+                        // Run smart ID migration seamlessly
+                        const migrationResult = window.migrateAndGetNextId(new Date().toISOString().split('T')[0]);
+                        if (migrationResult.changed) window.saveDataToCloud();
                     }
                     render();
                 }
@@ -476,6 +544,7 @@
             state.receiptData = null;
             state.attendanceReportData = null;
             state.individualReportData = null;
+            state.performanceReportData = null;
             render();
         };
 
@@ -508,9 +577,7 @@
         };
 
         window.shareFormWhatsApp = () => {
-            // First trigger the PDF download
             window.generatePremiumPDF();
-            // Then wait just a second for it to initiate and open WhatsApp modal so user can attach it
             setTimeout(() => {
                 const courseName = state.receiptData.type === 'Skill' ? state.receiptData.course : state.receiptData.std;
                 window.openWhatsApp(state.receiptData.phone, 'admission_form', state.receiptData.name, courseName);
@@ -592,8 +659,11 @@
         window.confirmEnroll = (e) => {
             e.preventDefault();
             const fd = new FormData(e.target);
+            const enrollDate = fd.get('joiningDate') || new Date().toISOString().split('T')[0];
+            const migrationResult = window.migrateAndGetNextId(enrollDate);
+            
             const newStudent = {
-                id: `UVA-${Math.floor(1000 + Math.random() * 9000)}`,
+                id: migrationResult.nextId,
                 name: state.enrollingLead.name,
                 phone: state.enrollingLead.phone,
                 type: state.enrollingLead.type,
@@ -601,7 +671,7 @@
                 std: state.enrollingLead.std,
                 board: state.enrollingLead.board,
                 medium: state.enrollingLead.medium,
-                date: fd.get('joiningDate') || new Date().toISOString().split('T')[0],
+                date: enrollDate,
                 dob: fd.get('dob') || 'Not Provided',
                 gender: fd.get('gender') || 'Not Specified',
                 bloodGroup: fd.get('bloodGroup') || '-',
@@ -702,6 +772,8 @@
         window.deleteStudent = (id) => {
             if (confirm("Are you sure you want to completely delete this student record? This action cannot be undone.")) {
                 state.students = state.students.filter(s => s.id !== id);
+                if (state.perfSelectedStudentId === id) state.perfSelectedStudentId = null;
+                delete state.performanceData[id];
                 window.saveDataToCloud();
                 render();
             }
@@ -743,42 +815,28 @@
                 reader.onload = (e) => { 
                     const img = new Image();
                     img.onload = async () => {
-                        // SMART COMPRESSION: Create a canvas to compress the image before saving
                         const canvas = document.createElement('canvas');
                         let width = img.width;
                         let height = img.height;
-                        
-                        // Maximum dimensions for high-quality A4 printing without bloated DB sizes
                         const MAX_WIDTH = 1000;
                         const MAX_HEIGHT = 1000;
                         
                         if (width > height) {
-                            if (width > MAX_WIDTH) {
-                                height *= MAX_WIDTH / width;
-                                width = MAX_WIDTH;
-                            }
+                            if (width > MAX_WIDTH) { height *= MAX_WIDTH / width; width = MAX_WIDTH; }
                         } else {
-                            if (height > MAX_HEIGHT) {
-                                width *= MAX_HEIGHT / height;
-                                height = MAX_HEIGHT;
-                            }
+                            if (height > MAX_HEIGHT) { width *= MAX_HEIGHT / height; height = MAX_HEIGHT; }
                         }
                         
-                        canvas.width = width;
-                        canvas.height = height;
+                        canvas.width = width; canvas.height = height;
                         const ctx = canvas.getContext('2d');
                         ctx.drawImage(img, 0, 0, width, height);
-                        
-                        // Compress to JPEG format with 70% quality (drastically reduces base64 size)
                         const compressedBase64 = canvas.toDataURL('image/jpeg', 0.7);
 
                         if (studentId) {
                             const std = state.students.find(s => s.id === studentId);
-                            if (std) {
-                                std[type] = compressedBase64; // photoUrl, studentSignUrl, docAadhaar, etc.
-                            }
+                            if (std) std[type] = compressedBase64;
                         } else {
-                            state[type] = compressedBase64; // formLogoUrl, appIconUrl, adminSignUrl
+                            state[type] = compressedBase64;
                             if(type === 'appIconUrl') setupPWA();
                         }
                         await window.saveDataToCloud();
@@ -791,31 +849,14 @@
         };
 
         // --- ATTENDANCE ACTIONS ---
-        window.resetAttState = (studentsToReset) => {
-            // We no longer auto-fill 'Present'. We just ensure the date object exists.
+        window.resetAttState = () => {
             if (!state.attState[state.attDate]) state.attState[state.attDate] = {};
         };
 
-        window.updateAttFilter = (val) => {
-            state.attFilterCategory = val;
-            state.attSelectedBatch = '';
-            render();
-        };
-
-        window.updateAttBatch = (val) => {
-            state.attSelectedBatch = val;
-            render();
-        };
-
-        window.updateAttDate = (val) => {
-            state.attDate = val;
-            render();
-        };
-
-        window.updateAttMonth = (val) => {
-            state.attReportMonth = val;
-            render();
-        };
+        window.updateAttFilter = (val) => { state.attFilterCategory = val; state.attSelectedBatch = ''; render(); };
+        window.updateAttBatch = (val) => { state.attSelectedBatch = val; render(); };
+        window.updateAttDate = (val) => { state.attDate = val; render(); };
+        window.updateAttMonth = (val) => { state.attReportMonth = val; render(); };
 
         window.toggleAttendance = (id, status) => {
             const attKey = `${id}_${state.attSelectedBatch}`;
@@ -835,17 +876,17 @@
             if (state.attState[state.attDate] && state.attState[state.attDate][attKey]) {
                 state.attState[state.attDate][attKey].reason = val;
             } else if (state.attState[state.attDate] && state.attState[state.attDate][id]) {
-                state.attState[state.attDate][id].reason = val; // Fallback for old data
+                state.attState[state.attDate][id].reason = val;
             }
         };
 
         window.clearAttendance = () => {
-            if (confirm("Are you sure you want to completely clear/unmark all attendance for this batch on the selected date?")) {
+            if (confirm("Are you sure you want to clear all attendance for this batch on the selected date?")) {
                 const currentStudents = getFilteredStudents();
                 if (state.attState[state.attDate]) {
                     currentStudents.forEach(s => {
                         delete state.attState[state.attDate][`${s.id}_${state.attSelectedBatch}`];
-                        delete state.attState[state.attDate][s.id]; // Delete old format if exists
+                        delete state.attState[state.attDate][s.id];
                     });
                 }
                 render();
@@ -889,115 +930,84 @@
         };
         window.closeIndividualReport = () => { state.individualReportData = null; render(); };
 
-        // --- PDF GENERATION LOGIC ---
-        window.generatePremiumPDF = () => {
-            const btn = document.getElementById('pdf-download-btn');
-            const originalText = btn.innerHTML;
-            btn.innerHTML = `<i data-lucide="loader" class="w-4 h-4 mr-2 animate-spin"></i> Generating PDF...`;
-            if(window.lucide) lucide.createIcons();
+        // --- PERFORMANCE ACTIONS ---
+        window.updatePerfFilter = (val) => { state.perfFilterCategory = val; state.perfSelectedBatch = ''; state.perfSelectedStudentId = null; render(); };
+        window.updatePerfBatch = (val) => { state.perfSelectedBatch = val; state.perfSelectedStudentId = null; render(); };
+        window.updatePerfStudent = (val) => { state.perfSelectedStudentId = val; render(); };
 
-            // TEMPORARILY DISABLE SCALE FOR FLAWLESS PDF GENERATION
-            document.documentElement.style.setProperty('--doc-scale', '1');
-
-            const element = document.getElementById('premium-admission-document');
-
-            // Scroll to top to prevent html2canvas clipping bugs
-            window.scrollTo(0, 0);
-
-            let pdfName = `UVA_Document.pdf`;
-            if (state.receiptData) pdfName = `UVA_Admission_${state.receiptData.id}.pdf`;
-            else if (state.attendanceReportData) pdfName = `UVA_Batch_Report_${state.attendanceReportData.month}.pdf`;
-            else if (state.individualReportData) pdfName = `UVA_Student_Report_${state.individualReportData.student.id}.pdf`;
-
-            const opt = {
-                margin:       0,
-                filename:     pdfName,
-                image:        { type: 'jpeg', quality: 1.0 },
-                html2canvas:  { 
-                    scale: 2, 
-                    useCORS: true, 
-                    scrollY: 0, 
-                    scrollX: 0, 
-                    // Crucial fix: Clone element perfectly before capturing to bypass all PC/Windows display scaling issues
-                    onclone: (clonedDoc) => {
-                        const el = clonedDoc.getElementById('premium-admission-document');
-                        if (el) {
-                            el.style.zoom = '1';
-                            el.style.transform = 'none';
-                            el.style.width = '794px';
-                            el.style.height = '1123px';
-                        }
-                    }
-                },
-                jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
-            };
-
-            setTimeout(() => {
-                html2pdf().set(opt).from(element).save().then(() => {
-                    btn.innerHTML = originalText;
-                    if(window.lucide) lucide.createIcons();
-                    window.updateScale(); // RESTORE SCALE AFTER DOWNLOAD
-                });
-            }, 300);
+        window.ensurePerfData = (id) => {
+            if (!state.performanceData[id]) {
+                state.performanceData[id] = { tests: [], syllabus: [], remarks: '' };
+            }
         };
 
-        // --- PWA INSTALL ACTIONS ---
-        let deferredPrompt;
-        window.addEventListener('beforeinstallprompt', (e) => {
-            e.preventDefault(); 
-            deferredPrompt = e; 
-            state.canInstall = true; 
+        window.openAddTestModal = () => { state.showAddTestModal = true; render(); };
+        window.closeAddTestModal = () => { state.showAddTestModal = false; render(); };
+        
+        window.saveTestScore = (e) => {
+            e.preventDefault();
+            const fd = new FormData(e.target);
+            const id = state.perfSelectedStudentId;
+            window.ensurePerfData(id);
+            state.performanceData[id].tests.push({
+                id: 'TST-' + Date.now(),
+                date: fd.get('date'),
+                topic: fd.get('topic'),
+                total: parseFloat(fd.get('total')),
+                obtained: parseFloat(fd.get('obtained'))
+            });
+            state.showAddTestModal = false;
+            window.saveDataToCloud();
             render();
-        });
+        };
 
-        window.installPWA = async () => {
-            if (deferredPrompt) {
-                deferredPrompt.prompt();
-                const { outcome } = await deferredPrompt.userChoice;
-                if (outcome === 'accepted') {
-                    state.canInstall = false;
-                }
-                deferredPrompt = null;
+        window.deleteTestScore = (testId) => {
+            if(confirm('Delete this test score?')) {
+                const id = state.perfSelectedStudentId;
+                state.performanceData[id].tests = state.performanceData[id].tests.filter(t => t.id !== testId);
+                window.saveDataToCloud();
                 render();
             }
         };
 
-        function setupPWA() {
-            const appleIcon = document.getElementById('apple-icon');
-            if (appleIcon) {
-                appleIcon.href = state.appIconUrl;
+        window.addSyllabusSubject = () => {
+            const subject = prompt('Enter new subject/topic name:');
+            if (subject && subject.trim() !== '') {
+                const id = state.perfSelectedStudentId;
+                window.ensurePerfData(id);
+                state.performanceData[id].syllabus.push({ subject: subject.trim(), percent: 0, id: 'SUB-' + Date.now() });
+                window.saveDataToCloud();
+                render();
             }
+        };
 
-            const manifest = {
-                name: "UVA ERP",
-                short_name: "UVA ERP",
-                description: "Udaan Vibrant Academy ERP",
-                start_url: location.href,
-                display: "standalone",
-                background_color: "#f8fafc",
-                theme_color: "#0f172a",
-                icons: [
-                    { src: state.appIconUrl, sizes: "192x192", type: "image/svg+xml", purpose: "any maskable" },
-                    { src: state.appIconUrl, sizes: "512x512", type: "image/svg+xml", purpose: "any maskable" }
-                ]
+        window.updateSyllabusPercent = (subId, val) => {
+            const id = state.perfSelectedStudentId;
+            const sub = state.performanceData[id].syllabus.find(s => s.id === subId);
+            if (sub) {
+                sub.percent = parseInt(val);
+                render();
+            }
+        };
+        window.saveSyllabusChange = () => window.saveDataToCloud();
+
+        window.updatePerfRemark = (val) => {
+            const id = state.perfSelectedStudentId;
+            window.ensurePerfData(id);
+            state.performanceData[id].remarks = val;
+        };
+        window.savePerfRemark = () => window.saveDataToCloud();
+
+        window.openPerformanceReport = (studentId) => {
+            state.performanceReportData = {
+                student: state.students.find(s => s.id === studentId),
+                performance: state.performanceData[studentId] || { tests: [], syllabus: [], remarks: '' },
+                batch: state.perfSelectedBatch,
+                generatedAt: new Date().toLocaleDateString('en-IN')
             };
-            
-            const manifestBlob = new Blob([JSON.stringify(manifest)], {type: 'application/manifest+json'});
-            document.getElementById('manifest-link').href = URL.createObjectURL(manifestBlob);
-
-            const swCode = `
-                self.addEventListener('install', (e) => self.skipWaiting());
-                self.addEventListener('activate', (e) => e.waitUntil(clients.claim()));
-                self.addEventListener('fetch', (e) => {
-                    e.respondWith(fetch(e.request).catch(() => new Response('Offline Mode Active. Please connect to internet.')));
-                });
-            `;
-            const swBlob = new Blob([swCode], {type: 'text/javascript'});
-            
-            if ('serviceWorker' in navigator) {
-                navigator.serviceWorker.register(URL.createObjectURL(swBlob)).catch(err => console.log('SW Registration failed: ', err));
-            }
-        }
+            render();
+        };
+        window.closePerformanceReport = () => { state.performanceReportData = null; render(); };
 
         // --- ADMISSIONS FILTER ACTIONS ---
         window.updateAdmSearch = (val) => { state.admSearchQuery = val; render(); };
@@ -1005,12 +1015,12 @@
         window.updateAdmCourseFilter = (val) => { state.admCourseFilter = val; render(); };
         window.updateAdmOfferFilter = (val) => { state.admOfferFilter = val; render(); };
 
+        // --- COMMON HELPERS ---
         function getBatches() {
             const b = new Set();
             state.students.forEach(s => {
                 const isSkill = s.type === 'Skill' || s.type === 'Both';
                 const isTuition = s.type === 'Tuition' || s.type === 'Both';
-                
                 if (isSkill && (state.attFilterCategory === 'All' || state.attFilterCategory === 'Skill')) {
                     if(s.course) b.add(s.course);
                 }
@@ -1026,16 +1036,138 @@
             return state.students.filter(s => {
                 const skillBatch = s.course;
                 const tuitionBatch = `${s.std} ${s.board} ${s.medium}`;
-                
                 const matchSkill = (s.type === 'Skill' || s.type === 'Both') && skillBatch === state.attSelectedBatch && (state.attFilterCategory === 'All' || state.attFilterCategory === 'Skill');
                 const matchTuition = (s.type === 'Tuition' || s.type === 'Both') && tuitionBatch === state.attSelectedBatch && (state.attFilterCategory === 'All' || state.attFilterCategory === 'Tuition');
-                
                 return matchSkill || matchTuition;
             });
         }
 
+        function getPerfBatches() {
+            const b = new Set();
+            state.students.forEach(s => {
+                const isSkill = s.type === 'Skill' || s.type === 'Both';
+                const isTuition = s.type === 'Tuition' || s.type === 'Both';
+                if (isSkill && (state.perfFilterCategory === 'All' || state.perfFilterCategory === 'Skill')) {
+                    if(s.course) b.add(s.course);
+                }
+                if (isTuition && (state.perfFilterCategory === 'All' || state.perfFilterCategory === 'Tuition')) {
+                    if(s.std) b.add(`${s.std} ${s.board} ${s.medium}`);
+                }
+            });
+            return [...b];
+        }
+
+        function getPerfFilteredStudents() {
+            if (!state.perfSelectedBatch) return [];
+            return state.students.filter(s => {
+                const skillBatch = s.course;
+                const tuitionBatch = `${s.std} ${s.board} ${s.medium}`;
+                const matchSkill = (s.type === 'Skill' || s.type === 'Both') && skillBatch === state.perfSelectedBatch && (state.perfFilterCategory === 'All' || state.perfFilterCategory === 'Skill');
+                const matchTuition = (s.type === 'Tuition' || s.type === 'Both') && tuitionBatch === state.perfSelectedBatch && (state.perfFilterCategory === 'All' || state.perfFilterCategory === 'Tuition');
+                return matchSkill || matchTuition;
+            });
+        }
+
+        // --- PDF GENERATION LOGIC ---
+        window.generatePremiumPDF = () => {
+            const btn = document.getElementById('pdf-download-btn');
+            const originalText = btn.innerHTML;
+            btn.innerHTML = `<i data-lucide="loader" class="w-4 h-4 mr-2 animate-spin"></i> Generating PDF...`;
+            if(window.lucide) lucide.createIcons();
+
+            document.documentElement.style.setProperty('--doc-scale', '1');
+            const element = document.getElementById('premium-admission-document');
+            window.scrollTo(0, 0);
+
+            let pdfName = `UVA_Document.pdf`;
+            if (state.receiptData) pdfName = `UVA_Admission_${state.receiptData.id}.pdf`;
+            else if (state.attendanceReportData) pdfName = `UVA_Batch_Report_${state.attendanceReportData.month}.pdf`;
+            else if (state.individualReportData) pdfName = `UVA_Student_Report_${state.individualReportData.student.id}.pdf`;
+            else if (state.performanceReportData) pdfName = `UVA_Performance_${state.performanceReportData.student.id}.pdf`;
+
+            const opt = {
+                margin:       0,
+                filename:     pdfName,
+                image:        { type: 'jpeg', quality: 1.0 },
+                pagebreak:    { mode: ['css', 'legacy'] },
+                html2canvas:  { 
+                    scale: 2, 
+                    useCORS: true, 
+                    scrollY: 0, 
+                    scrollX: 0, 
+                    onclone: (clonedDoc) => {
+                        const el = clonedDoc.getElementById('premium-admission-document');
+                        if (el) {
+                            el.style.zoom = '1';
+                            el.style.transform = 'none';
+                            el.style.width = '794px';
+                            el.style.position = 'absolute'; 
+                            el.style.top = '0';
+                            el.style.left = '0';
+                            el.style.margin = '0';
+                        }
+                    }
+                },
+                jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+            };
+
+            setTimeout(() => {
+                html2pdf().set(opt).from(element).save().then(() => {
+                    btn.innerHTML = originalText;
+                    if(window.lucide) lucide.createIcons();
+                    window.updateScale();
+                });
+            }, 300);
+        };
+
+        // --- PWA INSTALL ACTIONS ---
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault(); 
+            deferredPrompt = e; 
+            state.canInstall = true; 
+            render();
+        });
+
+        window.installPWA = async () => {
+            if (deferredPrompt) {
+                deferredPrompt.prompt();
+                const { outcome } = await deferredPrompt.userChoice;
+                if (outcome === 'accepted') { state.canInstall = false; }
+                deferredPrompt = null;
+                render();
+            }
+        };
+
+        window.addEventListener('load', () => {
+            const appleIcon = document.getElementById('apple-icon');
+            if (appleIcon) appleIcon.href = state.appIconUrl;
+
+            const manifest = {
+                name: "UVA ERP", short_name: "UVA ERP", description: "Udaan Vibrant Academy ERP",
+                start_url: location.href, display: "standalone", background_color: "#f8fafc", theme_color: "#0f172a",
+                icons: [
+                    { src: state.appIconUrl, sizes: "192x192", type: "image/svg+xml", purpose: "any maskable" },
+                    { src: state.appIconUrl, sizes: "512x512", type: "image/svg+xml", purpose: "any maskable" }
+                ]
+            };
+            
+            const manifestBlob = new Blob([JSON.stringify(manifest)], {type: 'application/manifest+json'});
+            const link = document.getElementById('manifest-link');
+            if(link) link.href = URL.createObjectURL(manifestBlob);
+
+            const swCode = `
+                self.addEventListener('install', (e) => self.skipWaiting());
+                self.addEventListener('activate', (e) => e.waitUntil(clients.claim()));
+                self.addEventListener('fetch', (e) => { e.respondWith(fetch(e.request).catch(() => new Response('Offline Mode Active.'))); });
+            `;
+            const swBlob = new Blob([swCode], {type: 'text/javascript'});
+            
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.register(URL.createObjectURL(swBlob)).catch(err => console.log('SW Registration failed: ', err));
+            }
+        });
+
         // --- TEMPLATES ---
-        
         function AppTemplate() {
             if (state.isAuthLoading) {
                 return `
@@ -1046,10 +1178,7 @@
                     </div>
                 </div>`;
             }
-
-            if (!state.user) {
-                return LoginTemplate();
-            }
+            if (!state.user) return LoginTemplate();
 
             return `
             <div class="flex flex-col md:flex-row h-[100dvh] w-full relative bg-slate-50">
@@ -1082,8 +1211,7 @@
                 <div class="bg-red-500/10 border border-red-500/50 text-red-400 p-3 rounded-xl text-sm mb-6 flex items-start animate-fade-in">
                     <i data-lucide="alert-circle" class="w-5 h-5 mr-2 flex-shrink-0 mt-0.5"></i>
                     <span>${state.loginError}</span>
-                </div>
-            ` : '';
+                </div>` : '';
 
             return `
             <div class="bg-mesh min-h-[100dvh] w-full flex items-center justify-center p-4 sm:p-6 lg:p-8 relative overflow-hidden">
@@ -1091,16 +1219,13 @@
                 <div class="glow-orb orb-purple"></div>
                 
                 <div class="relative z-10 w-full max-w-5xl flex flex-col md:flex-row rounded-3xl md:rounded-[2.5rem] overflow-hidden shadow-[0_0_50px_rgba(0,0,0,0.5)] border border-slate-700/50 animate-fade-in max-h-[95dvh] md:max-h-[85vh]">
-                    
                     <div class="hidden md:flex md:w-5/12 bg-gradient-to-br from-slate-900 to-slate-800 p-10 flex-col justify-between relative overflow-y-auto">
                         <div class="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMCIgaGVpZ2h0PSIyMCI+PGNpcmNsZSBjeD0iMiIgY3k9IjIiIHI9IjIiIGZpbGw9InJnYmEoMjU1LDI1NSwyNTUsMC4wNSkiLz48L3N2Zz4=')] opacity-50"></div>
-                        
                         <div class="relative z-10">
                             <div class="w-16 h-16 bg-gradient-to-br from-orange-400 to-orange-600 rounded-2xl flex items-center justify-center font-extrabold text-white text-2xl shadow-lg shadow-orange-500/30 mb-6">UVA</div>
                             <h2 class="text-3xl font-extrabold text-white tracking-tight mb-2">Udaan Vibrant Academy</h2>
                             <p class="text-orange-400 font-bold tracking-widest text-sm uppercase">ERP & CRM System</p>
                         </div>
-                        
                         <div class="relative z-10 space-y-6 mt-12">
                             <div class="flex items-center space-x-4 text-slate-300">
                                 <div class="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center border border-slate-700"><i data-lucide="users" class="w-5 h-5 text-orange-400"></i></div>
@@ -1124,14 +1249,11 @@
                             <h2 class="text-2xl font-extrabold text-white tracking-tight">Welcome Back</h2>
                             <p class="text-slate-400 text-sm mt-1">Log in to manage your academy.</p>
                         </div>
-
                         <div class="hidden md:block mb-8">
                             <h2 class="text-3xl font-extrabold text-white tracking-tight">Admin Login</h2>
                             <p class="text-slate-400 font-medium mt-2">Secure access to your dashboard.</p>
                         </div>
-                        
                         ${errorHTML}
-
                         <form onsubmit="handleLogin(event)" class="space-y-4 md:space-y-5">
                             <div class="space-y-1.5">
                                 <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider">Email Address</label>
@@ -1153,7 +1275,6 @@
                                 <span>Secure Login</span><i data-lucide="arrow-right" class="w-5 h-5"></i>
                             </button>
                         </form>
-
                         <div class="mt-8 pt-6 border-t border-slate-800/50 text-center">
                             <p class="text-xs text-slate-500 mb-4">Firebase Auth not set up yet?</p>
                             <button onclick="bypassLogin()" class="group relative inline-flex items-center justify-center px-6 py-2.5 text-sm font-bold text-slate-300 transition-all duration-200 bg-slate-800/50 border border-slate-700 rounded-xl hover:bg-slate-700 hover:text-white hover:border-slate-600 overflow-hidden w-full sm:w-auto">
@@ -1203,11 +1324,11 @@
                 </button>
             `;
             return `
-            <nav class="md:hidden fixed bottom-0 w-full bg-white border-t border-slate-200 flex justify-between z-40 pb-safe print:hidden shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+            <nav class="md:hidden fixed bottom-0 w-full bg-white border-t border-slate-200 flex justify-between z-40 pb-safe print:hidden shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] overflow-x-auto">
                 ${navBtn('dashboard', 'bar-chart-3', 'Dash')}
-                ${navBtn('inquiries', 'user-plus', 'Inquiries')}
-                ${navBtn('admissions', 'book-open', 'Admissions')}
+                ${navBtn('admissions', 'book-open', 'Admin')}
                 ${navBtn('attendance', 'check-square', 'Attend')}
+                ${navBtn('performance', 'trending-up', 'Perform')}
             </nav>`;
         }
 
@@ -1219,7 +1340,7 @@
             const installBtn = state.canInstall ? `
                 <button onclick="installPWA()" class="w-full bg-orange-500 text-white flex items-center justify-center space-x-2 px-4 py-3 rounded-xl hover:bg-orange-600 transition-colors shadow-lg shadow-orange-500/30 mb-2 animate-fade-in">
                     <i data-lucide="download" class="w-5 h-5"></i>
-                    <span class="font-bold tracking-wide uppercase text-sm">Install App (PC/Mobile)</span>
+                    <span class="font-bold tracking-wide uppercase text-sm">Install App</span>
                 </button>
             ` : '';
 
@@ -1250,6 +1371,9 @@
                     <div onclick="switchTab('attendance')" class="${btnClass(state.activeTab === 'attendance')}">
                         <i data-lucide="check-square" class="w-5 h-5"></i> <span>Attendance</span>
                     </div>
+                    <div onclick="switchTab('performance')" class="${btnClass(state.activeTab === 'performance')}">
+                        <i data-lucide="trending-up" class="w-5 h-5"></i> <span>Performance</span>
+                    </div>
                 </nav>
                 <div class="p-4 border-t border-slate-700 flex flex-col flex-shrink-0">
                     ${installBtn}
@@ -1266,12 +1390,14 @@
             if (state.receiptData) return ReceiptViewTemplate();
             if (state.attendanceReportData) return AttendanceReportViewTemplate();
             if (state.individualReportData) return IndividualReportTemplate();
+            if (state.performanceReportData) return PerformanceReportTemplate();
             
             switch (state.activeTab) {
                 case 'dashboard': return DashboardTemplate();
                 case 'inquiries': return InquiriesTemplate();
                 case 'admissions': return AdmissionsTemplate();
                 case 'attendance': return AttendanceTemplate();
+                case 'performance': return PerformanceTemplate();
                 default: return DashboardTemplate();
             }
         }
@@ -1310,7 +1436,7 @@
             if(!recentHTML) recentHTML = `<p class="text-slate-400 text-sm">No enrollments yet.</p>`;
 
             return `
-            <div class="p-4 sm:p-6 md:p-8 min-h-full animate-fade-in">
+            <div class="p-4 sm:p-6 md:p-8 min-h-full animate-fade-in w-full overflow-hidden">
                 <div class="mb-6 md:mb-8">
                     <h2 class="text-2xl md:text-3xl font-extrabold text-slate-900 tracking-tight">Academy Dashboard</h2>
                     <p class="text-sm md:text-base text-slate-500 font-medium mt-1">Track your growth, conversions, and top channels.</p>
@@ -1369,7 +1495,7 @@
                             </select>
                         </div>
                         <div>
-                            <label class="block text-sm font-bold text-slate-600 mb-1.5">Board</label>
+                            <label class="block text-xs font-bold text-slate-600 mb-1.5">Board</label>
                             <select required onchange="window.updateNewInquiryData('board', this.value)" class="w-full p-2.5 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 bg-white text-sm">
                                 <option value="">Select Board</option>
                                 <option value="GSEB" ${d.board==='GSEB'?'selected':''}>GSEB</option>
@@ -1377,7 +1503,7 @@
                             </select>
                         </div>
                         <div>
-                            <label class="block text-sm font-bold text-slate-600 mb-1.5">Medium</label>
+                            <label class="block text-xs font-bold text-slate-600 mb-1.5">Medium</label>
                             <select required onchange="window.updateNewInquiryData('medium', this.value)" class="w-full p-2.5 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 bg-white text-sm">
                                 <option value="">Select Medium</option>
                                 <option value="Gujarati" ${d.medium==='Gujarati'?'selected':''}>Gujarati</option>
@@ -1394,7 +1520,7 @@
                 const submitBtn = state.editingInquiryId ? 'Update Lead' : 'Save Lead';
 
                 formHTML = `
-                <div class="bg-white p-5 md:p-6 rounded-2xl shadow-sm border border-slate-200 mb-6 md:mb-8 animate-fade-in">
+                <div class="bg-white p-5 md:p-6 rounded-2xl shadow-sm border border-slate-200 mb-6 md:mb-8 animate-fade-in w-full overflow-hidden">
                     <h3 class="text-base md:text-lg font-bold text-slate-800 mb-4 border-b pb-3">${formTitle}</h3>
                     <form onsubmit="window.saveInquiry(event)" class="space-y-4 md:space-y-5">
                         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-5">
@@ -1511,7 +1637,7 @@
             if(!tableHTML) tableHTML = `<tr><td colspan="5" class="p-8 text-center text-slate-500 font-medium text-sm">No inquiries found.</td></tr>`;
 
             return `
-            <div class="p-4 sm:p-6 md:p-8 relative min-h-full animate-fade-in">
+            <div class="p-4 sm:p-6 md:p-8 relative min-h-full animate-fade-in w-full overflow-hidden">
                 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 md:mb-8 gap-4">
                     <div>
                         <h2 class="text-2xl md:text-3xl font-extrabold text-slate-900 tracking-tight">Inquiries & CRM</h2>
@@ -1605,7 +1731,7 @@
                                 <div><label class="block text-xs font-bold text-slate-600 mb-1">Parent's Full Name</label><input type="text" name="parentName" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 text-sm font-medium text-slate-700" /></div>
                                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-5">
                                     <div><label class="block text-xs font-bold text-slate-600 mb-1">Parent's Phone</label><input type="text" name="parentPhone" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 text-sm font-medium text-slate-700" /></div>
-                                    <div><label class="block text-xs font-bold text-slate-600 mb-1">Occupation</label><input type="text" name="parentOccupation" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 text-sm font-medium text-slate-700" /></div>
+                                    <div><label class="block text-xs font-bold text-slate-600 mb-1">Occupation</label><input type="text" name="parentOccupation" placeholder="e.g. Business / Service" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 text-sm font-medium text-slate-700" /></div>
                                 </div>
                                 <div><label class="block text-xs font-bold text-slate-600 mb-1">Parent's Email</label><input type="email" name="parentEmail" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 text-sm font-medium text-slate-700" /></div>
                             </div>
@@ -1665,14 +1791,14 @@
                         <p class="text-[10px] md:text-xs text-slate-400 font-medium">Phone: +91 ${std.phone} • Enrolled: ${std.date}</p>
                         ${offerBadge}
                     </div>
-                    <div class="flex space-x-2 md:space-x-3 pt-3 md:pt-0 border-t border-slate-100 md:border-0 mt-3 md:mt-0 w-full md:w-auto">
-                        <button onclick="window.openEditStudentModal('${std.id}')" title="Edit Student" class="flex-1 md:flex-none md:w-auto px-4 py-3 md:py-2.5 bg-slate-100 text-slate-600 rounded-xl text-sm font-bold hover:bg-slate-200 hover:text-slate-800 flex items-center justify-center space-x-1 transition-all">
+                    <div class="flex space-x-2 md:space-x-3 pt-3 md:pt-0 border-t border-slate-100 md:border-0 mt-3 md:mt-0 w-full md:w-auto overflow-x-auto">
+                        <button onclick="window.openEditStudentModal('${std.id}')" title="Edit Student" class="flex-shrink-0 px-4 py-3 md:py-2.5 bg-slate-100 text-slate-600 rounded-xl text-sm font-bold hover:bg-slate-200 hover:text-slate-800 flex items-center justify-center space-x-1 transition-all">
                             <i data-lucide="pencil" class="w-4 h-4 md:w-5 md:h-5"></i><span class="md:hidden lg:inline text-xs">Edit</span>
                         </button>
-                        <button onclick="window.deleteStudent('${std.id}')" title="Delete Student" class="flex-1 md:flex-none md:w-auto px-4 py-3 md:py-2.5 bg-red-50 text-red-500 rounded-xl text-sm font-bold hover:bg-red-100 hover:text-red-600 flex items-center justify-center space-x-1 transition-all">
+                        <button onclick="window.deleteStudent('${std.id}')" title="Delete Student" class="flex-shrink-0 px-4 py-3 md:py-2.5 bg-red-50 text-red-500 rounded-xl text-sm font-bold hover:bg-red-100 hover:text-red-600 flex items-center justify-center space-x-1 transition-all">
                             <i data-lucide="trash-2" class="w-4 h-4 md:w-5 md:h-5"></i><span class="md:hidden lg:inline text-xs">Delete</span>
                         </button>
-                        <button onclick="window.openReceipt('${std.id}')" class="flex-1 md:flex-none md:w-auto px-5 py-3 md:py-2.5 bg-orange-500 text-white rounded-xl text-sm font-bold hover:bg-orange-600 flex items-center justify-center space-x-2 shadow-md shadow-orange-500/20 transition-all">
+                        <button onclick="window.openReceipt('${std.id}')" class="flex-shrink-0 px-5 py-3 md:py-2.5 bg-orange-500 text-white rounded-xl text-sm font-bold hover:bg-orange-600 flex items-center justify-center space-x-2 shadow-md shadow-orange-500/20 transition-all">
                             <i data-lucide="file-text" class="w-4 h-4 md:w-5 md:h-5"></i> <span>Form</span>
                         </button>
                     </div>
@@ -1682,7 +1808,7 @@
             if(filteredStudents.length === 0) stdHTML = `<div class="p-8 md:p-10 text-center text-slate-500 font-medium bg-white rounded-2xl border border-dashed border-slate-300 text-sm md:text-base">No students found matching your filters.</div>`;
 
             return `
-            <div class="p-4 sm:p-6 md:p-8 min-h-full animate-fade-in">
+            <div class="p-4 sm:p-6 md:p-8 min-h-full animate-fade-in w-full overflow-hidden">
                 <div class="mb-6 md:mb-8">
                     <h2 class="text-2xl md:text-3xl font-extrabold text-slate-900 tracking-tight">Admissions</h2>
                     <p class="text-sm md:text-base text-slate-500 font-medium mt-1">Manage enrolled students, print forms, and search.</p>
@@ -1951,7 +2077,7 @@
                 if(filteredStudents.length === 0) stdRows = `<div class="p-8 text-center text-slate-500 font-medium text-sm md:text-base">No students found in this batch based on your filters.</div>`;
 
                 displayHTML = `
-                <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden animate-fade-in">
+                <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden animate-fade-in w-full overflow-x-auto">
                     <div class="p-4 md:p-6 bg-slate-900 flex flex-col sm:flex-row sm:justify-between sm:items-center text-white gap-4">
                         <div>
                             <h3 class="font-bold text-lg md:text-xl text-orange-400">${state.attSelectedBatch}</h3>
@@ -1966,7 +2092,7 @@
                             </button>
                         </div>
                     </div>
-                    <div class="p-2 md:p-4">${stdRows}</div>
+                    <div class="p-2 md:p-4 min-w-[600px]">${stdRows}</div>
                     <div class="p-4 md:p-5 bg-slate-50 border-t flex flex-col sm:flex-row justify-between items-center gap-4">
                         <button onclick="window.clearAttendance()" class="w-full sm:w-auto px-4 py-3 md:py-3 bg-red-50 text-red-600 font-bold rounded-xl hover:bg-red-100 transition-colors text-sm md:text-base flex items-center justify-center">
                             <i data-lucide="eraser" class="w-4 h-4 md:w-5 md:h-5 mr-1 md:mr-2"></i> <span class="hidden sm:inline">Clear Day</span><span class="sm:hidden">Clear</span>
@@ -1988,7 +2114,7 @@
             }
 
             return `
-            <div class="p-4 sm:p-6 md:p-8 bg-slate-50 min-h-full animate-fade-in">
+            <div class="p-4 sm:p-6 md:p-8 bg-slate-50 min-h-full animate-fade-in w-full overflow-hidden">
                 <div class="mb-6 md:mb-8">
                     <h2 class="text-2xl md:text-3xl font-extrabold text-slate-900 tracking-tight">Attendance</h2>
                     <p class="text-sm md:text-base text-slate-500 font-medium mt-1">Track batch presence and generate monthly reports.</p>
@@ -2096,236 +2222,249 @@
 
                 <!-- A4 Premium Document Wrapper -->
                 <div class="a4-wrapper print:p-0">
-                    <div id="premium-admission-document" class="a4-document mobile-scale-target bg-white flex flex-col print:shadow-none">
+                    <div id="premium-admission-document" class="mobile-scale-target flex flex-col print:gap-0 w-[794px]">
                         
-                        <!-- Watermark -->
-                        <img src="${state.formLogoUrl}" class="watermark-logo" />
-
-                        <!-- 1. HEADER SECTION -->
-                        <div class="flex h-[130px] w-full relative z-10 border-b-[8px] border-[#0A1E4D]">
-                            <!-- Left Branding -->
-                            <div class="w-[65%] bg-white pl-8 pr-4 flex items-center">
-                                <img src="${state.formLogoUrl}" style="width: ${state.formLogoSize || 80}px; height: ${state.formLogoSize || 80}px;" class="object-contain mr-5" />
-                                <div class="flex flex-col justify-center">
-                                    <h1 class="font-['Montserrat'] font-black text-3xl text-[#0A1E4D] tracking-tighter leading-none mb-1">UDAAN</h1>
-                                    <h2 class="font-['Montserrat'] font-bold text-[17px] text-[#F59E0B] tracking-[0.2em] uppercase leading-none mb-1">Vibrant Academy</h2>
-                                    <p class="text-[10px] font-bold italic text-slate-500 tracking-wider">"Where Learning Takes Flight"</p>
-                                </div>
-                            </div>
-                            <!-- Right Details -->
-                            <div class="w-[35%] bg-[#0A1E4D] p-6 flex flex-col justify-center border-l-[6px] border-[#F59E0B] relative">
-                                <h3 class="font-['Montserrat'] font-bold text-[19px] text-white tracking-widest uppercase border-b-2 border-[#1F5FBF] pb-1.5 mb-3 inline-block">Admission Form</h3>
-                                <div class="flex flex-col space-y-2 text-white/90 text-[10px]">
-                                    <div class="flex justify-between border-b border-white/20 pb-0.5"><span class="font-medium text-slate-300">Admission Date:</span><span class="font-bold tracking-wide">${new Date(data.date).toLocaleDateString('en-IN')}</span></div>
-                                    <div class="flex justify-between border-b border-white/20 pb-0.5"><span class="font-medium text-slate-300">Unique Form ID:</span><span class="font-black text-[#F59E0B] tracking-wider">${data.id}</span></div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- 2. INFO RIBBON CARDS -->
-                        <div class="px-8 py-5 relative z-10">
-                            <div class="flex bg-slate-50 border border-slate-200 rounded-xl p-2.5 shadow-sm justify-between">
-                                <div class="flex items-center px-4 w-1/3 border-r border-slate-200">
-                                    <div class="w-8 h-8 rounded-full bg-[#0A1E4D]/10 flex items-center justify-center text-[#0A1E4D] mr-3"><i data-lucide="user" class="w-4 h-4"></i></div>
-                                    <div class="flex flex-col"><span class="text-[8px] font-extrabold text-slate-400 uppercase tracking-widest mb-0.5">Student ID</span><span class="text-[13px] font-black text-[#0A1E4D] leading-none">${data.id}</span></div>
-                                </div>
-                                <div class="flex items-center px-4 w-1/3 border-r border-slate-200">
-                                    <div class="w-8 h-8 rounded-full bg-[#1F5FBF]/10 flex items-center justify-center text-[#1F5FBF] mr-3"><i data-lucide="calendar" class="w-4 h-4"></i></div>
-                                    <div class="flex flex-col"><span class="text-[8px] font-extrabold text-slate-400 uppercase tracking-widest mb-0.5">Application Date</span><span class="text-[13px] font-bold text-slate-800 leading-none">${new Date(data.date).toLocaleDateString('en-IN')}</span></div>
-                                </div>
-                                <div class="flex items-center px-4 w-1/3">
-                                    <div class="w-8 h-8 rounded-full bg-[#F59E0B]/10 flex items-center justify-center text-[#D97706] mr-3"><i data-lucide="graduation-cap" class="w-4 h-4"></i></div>
-                                    <div class="flex flex-col"><span class="text-[8px] font-extrabold text-slate-400 uppercase tracking-widest mb-0.5">Academic Year</span><span class="text-[13px] font-bold text-slate-800 leading-none">2026 - 2027</span></div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- 3. MAIN FORM BODY (Two Columns) -->
-                        <div class="px-8 flex-1 flex gap-8 relative z-10">
+                        <!-- Page 1: Admission Form -->
+                        <div class="a4-document bg-white flex flex-col relative print:shadow-none">
                             
-                            <!-- LEFT COLUMN -->
-                            <div class="w-[66%] flex flex-col space-y-6">
-                                
-                                <!-- Sec 1: Student Information -->
-                                <div>
-                                    <div class="flex items-center border-b-[3px] border-slate-100 pb-2 mb-4">
-                                        <div class="w-6 h-6 bg-[#0A1E4D] rounded flex items-center justify-center text-white text-[11px] font-black mr-3 shadow-sm">1</div>
-                                        <h4 class="font-['Montserrat'] text-[13px] font-bold text-[#0A1E4D] uppercase tracking-wider">Student Information</h4>
+                            <!-- Watermark -->
+                            <img src="${state.formLogoUrl}" class="watermark-logo" />
+
+                            <!-- 1. HEADER SECTION -->
+                            <div class="flex h-[130px] w-full relative z-10 border-b-[8px] border-[#0A1E4D]">
+                                <!-- Left Branding -->
+                                <div class="w-[65%] bg-white pl-8 pr-4 flex items-center">
+                                    <img src="${state.formLogoUrl}" style="width: ${state.formLogoSize || 80}px; height: ${state.formLogoSize || 80}px;" class="object-contain mr-5" />
+                                    <div class="flex flex-col justify-center">
+                                        <h1 class="font-['Montserrat'] font-black text-3xl text-[#0A1E4D] tracking-tighter leading-none mb-1">UDAAN</h1>
+                                        <h2 class="font-['Montserrat'] font-bold text-[17px] text-[#F59E0B] tracking-[0.2em] uppercase leading-none mb-1">Vibrant Academy</h2>
+                                        <p class="text-[10px] font-bold italic text-slate-500 tracking-wider">"Where Learning Takes Flight"</p>
                                     </div>
-                                    <div class="grid grid-cols-2 gap-x-6 gap-y-4 px-2">
-                                        <div class="col-span-2 flex flex-col"><span class="pdf-label">Full Name (As per records) <span class="text-red-500">*</span></span><div class="pdf-value uppercase">${data.name}</div></div>
-                                        <div class="flex flex-col"><span class="pdf-label">Date of Birth <span class="text-red-500">*</span></span><div class="pdf-value">${data.dob}</div></div>
-                                        <div class="grid grid-cols-2 gap-x-4">
+                                </div>
+                                <!-- Right Details -->
+                                <div class="w-[35%] bg-[#0A1E4D] p-6 flex flex-col justify-center border-l-[6px] border-[#F59E0B] relative">
+                                    <h3 class="font-['Montserrat'] font-bold text-[19px] text-white tracking-widest uppercase border-b-2 border-[#1F5FBF] pb-1.5 mb-3 inline-block">Admission Form</h3>
+                                    <div class="flex flex-col space-y-2 text-white/90 text-[10px]">
+                                        <div class="flex justify-between border-b border-white/20 pb-0.5"><span class="font-medium text-slate-300">Admission Date:</span><span class="font-bold tracking-wide">${new Date(data.date).toLocaleDateString('en-IN')}</span></div>
+                                        <div class="flex justify-between border-b border-white/20 pb-0.5"><span class="font-medium text-slate-300">Unique Form ID:</span><span class="font-black text-[#F59E0B] tracking-wider">${data.id}</span></div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 2. INFO RIBBON CARDS -->
+                            <div class="px-8 py-5 relative z-10">
+                                <div class="flex bg-slate-50 border border-slate-200 rounded-xl p-2.5 shadow-sm justify-between">
+                                    <div class="flex items-center px-4 w-1/3 border-r border-slate-200">
+                                        <div class="w-8 h-8 rounded-full bg-[#0A1E4D]/10 flex items-center justify-center text-[#0A1E4D] mr-3"><i data-lucide="user" class="w-4 h-4"></i></div>
+                                        <div class="flex flex-col"><span class="text-[8px] font-extrabold text-slate-400 uppercase tracking-widest mb-0.5">Student ID</span><span class="text-[13px] font-black text-[#0A1E4D] leading-none">${data.id}</span></div>
+                                    </div>
+                                    <div class="flex items-center px-4 w-1/3 border-r border-slate-200">
+                                        <div class="w-8 h-8 rounded-full bg-[#1F5FBF]/10 flex items-center justify-center text-[#1F5FBF] mr-3"><i data-lucide="calendar" class="w-4 h-4"></i></div>
+                                        <div class="flex flex-col"><span class="text-[8px] font-extrabold text-slate-400 uppercase tracking-widest mb-0.5">Application Date</span><span class="text-[13px] font-bold text-slate-800 leading-none">${new Date(data.date).toLocaleDateString('en-IN')}</span></div>
+                                    </div>
+                                    <div class="flex items-center px-4 w-1/3">
+                                        <div class="w-8 h-8 rounded-full bg-[#F59E0B]/10 flex items-center justify-center text-[#D97706] mr-3"><i data-lucide="graduation-cap" class="w-4 h-4"></i></div>
+                                        <div class="flex flex-col"><span class="text-[8px] font-extrabold text-slate-400 uppercase tracking-widest mb-0.5">Academic Year</span><span class="text-[13px] font-bold text-slate-800 leading-none">${window.getAcademicYear(data.date)}</span></div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 3. MAIN FORM BODY (Two Columns) -->
+                            <div class="px-8 flex-1 flex gap-8 relative z-10">
+                                
+                                <!-- LEFT COLUMN -->
+                                <div class="w-[66%] flex flex-col space-y-6">
+                                    
+                                    <!-- Sec 1: Student Information -->
+                                    <div>
+                                        <div class="flex items-center border-b-[3px] border-slate-100 pb-2 mb-4">
+                                            <div class="w-6 h-6 bg-[#0A1E4D] rounded flex items-center justify-center text-white text-[11px] font-black mr-3 shadow-sm">1</div>
+                                            <h4 class="font-['Montserrat'] text-[13px] font-bold text-[#0A1E4D] uppercase tracking-wider">Student Information</h4>
+                                        </div>
+                                        <div class="grid grid-cols-2 gap-x-6 gap-y-4 px-2">
+                                            <div class="col-span-2 flex flex-col"><span class="pdf-label">Full Name (As per records) <span class="text-red-500">*</span></span><div class="pdf-value uppercase">${data.name}</div></div>
+                                            <div class="flex flex-col"><span class="pdf-label">Date of Birth <span class="text-red-500">*</span></span><div class="pdf-value">${data.dob}</div></div>
+                                            <div class="grid grid-cols-2 gap-x-4">
                                             <div class="flex flex-col"><span class="pdf-label">Gender</span><div class="pdf-value">${data.gender}</div></div>
                                             <div class="flex flex-col"><span class="pdf-label">Blood Grp</span><div class="pdf-value">${data.bloodGroup}</div></div>
                                         </div>
                                         <div class="flex flex-col"><span class="pdf-label">Mobile Number <span class="text-red-500">*</span></span><div class="pdf-value"><span class="text-slate-400 mr-1">+91</span>${data.phone}</div></div>
                                         <div class="flex flex-col"><span class="pdf-label">WhatsApp Number</span><div class="pdf-value"><span class="text-slate-400 mr-1">+91</span>${data.phone}</div></div>
-                                        <div class="flex flex-col"><span class="pdf-label">Email Address</span><div class="pdf-value lowercase">${data.parentEmail !== '-' ? data.parentEmail : ''}</div></div>
-                                        <div class="flex flex-col"><span class="pdf-label">Aadhaar Number <span class="text-red-500">*</span></span><div class="pdf-value font-mono"></div></div>
+                                        <div class="col-span-2 flex flex-col"><span class="pdf-label">Email Address</span><div class="pdf-value lowercase">${data.parentEmail !== '-' ? data.parentEmail : ''}</div></div>
                                     </div>
                                 </div>
 
                                 <!-- Sec 2: Course Enrollment -->
-                                <div class="bg-blue-50/50 p-4 rounded-2xl border border-blue-100 relative overflow-hidden">
-                                    <div class="absolute right-0 top-0 w-16 h-16 bg-[#1F5FBF] opacity-5 rounded-bl-full"></div>
-                                    <div class="flex items-center border-b-[3px] border-blue-100 pb-2 mb-4 relative z-10">
-                                        <div class="w-6 h-6 bg-[#1F5FBF] rounded flex items-center justify-center text-white text-[11px] font-black mr-3 shadow-sm">2</div>
-                                        <h4 class="font-['Montserrat'] text-[13px] font-bold text-[#1F5FBF] uppercase tracking-wider">Course Enrollment</h4>
-                                    </div>
-                                    <div class="grid grid-cols-2 gap-x-6 gap-y-4 px-2 relative z-10">
-                                        <div class="col-span-2 flex flex-col"><span class="pdf-label text-[#1F5FBF]/70">Selected Course <span class="text-red-500">*</span></span><div class="pdf-value text-[#1F5FBF] border-[#1F5FBF]/30">${programName}</div></div>
-                                        <div class="flex flex-col"><span class="pdf-label text-[#1F5FBF]/70">Program Category</span><div class="pdf-value border-[#1F5FBF]/30">${data.type === 'Both' ? 'Tuition + Professional Skills' : (data.type === 'Skill' ? 'Professional & AI Skills' : 'Academic Tuition')}</div></div>
-                                        <div class="flex flex-col"><span class="pdf-label text-[#1F5FBF]/70">Duration / Medium</span><div class="pdf-value border-[#1F5FBF]/30">${dur}</div></div>
-                                        <div class="col-span-2 flex flex-col"><span class="pdf-label text-[#1F5FBF]/70">Preferred Batch Timing</span><div class="pdf-value border-[#1F5FBF]/30">${data.batchTiming}</div></div>
-                                        ${data.freeOffer && data.freeOffer !== 'None' ? `<div class="col-span-2 flex flex-col mt-2"><span class="pdf-label text-[#F59E0B]">Free Add-on Offer Applied</span><div class="pdf-value text-[#D97706] border-[#F59E0B]/30">${data.freeOffer}</div></div>` : ''}
-                                    </div>
-                                </div>
-
-                                <!-- Sec 3: Parent Info -->
-                                <div>
-                                    <div class="flex items-center border-b-[3px] border-slate-100 pb-2 mb-4">
-                                        <div class="w-6 h-6 bg-[#F59E0B] rounded flex items-center justify-center text-white text-[11px] font-black mr-3 shadow-sm">3</div>
-                                        <h4 class="font-['Montserrat'] text-[13px] font-bold text-[#0A1E4D] uppercase tracking-wider">Parent / Guardian Info</h4>
-                                    </div>
-                                    <div class="grid grid-cols-2 gap-x-6 gap-y-4 px-2">
-                                        <div class="col-span-2 flex flex-col"><span class="pdf-label">Father's / Guardian's Name <span class="text-red-500">*</span></span><div class="pdf-value uppercase">${data.parentName}</div></div>
-                                        <div class="flex flex-col"><span class="pdf-label">Parent's Contact Number <span class="text-red-500">*</span></span><div class="pdf-value">${data.parentPhone !== '-' ? `<span class="text-slate-400 mr-1">+91</span>${data.parentPhone}` : ''}</div></div>
-                                        <div class="flex flex-col"><span class="pdf-label">Occupation</span><div class="pdf-value">${data.parentOccupation !== '-' ? data.parentOccupation : ''}</div></div>
-                                    </div>
-                                </div>
-
-                                <!-- Sec 4: Address Info -->
-                                <div>
-                                    <div class="flex items-center border-b-[3px] border-slate-100 pb-2 mb-4">
-                                        <div class="w-6 h-6 bg-[#0A1E4D] rounded flex items-center justify-center text-white text-[11px] font-black mr-3 shadow-sm">4</div>
-                                        <h4 class="font-['Montserrat'] text-[13px] font-bold text-[#0A1E4D] uppercase tracking-wider">Address Details</h4>
-                                    </div>
-                                    <div class="grid grid-cols-2 gap-x-6 gap-y-4 px-2">
-                                        <div class="col-span-2 flex flex-col"><span class="pdf-label">Residential Address <span class="text-red-500">*</span></span><div class="pdf-value">${data.address !== 'Not Provided' ? data.address : ''}</div></div>
-                                        <div class="flex flex-col"><span class="pdf-label">City / District</span><div class="pdf-value">${data.city || ''}</div></div>
-                                        <div class="grid grid-cols-2 gap-x-4">
-                                            <div class="flex flex-col"><span class="pdf-label">State</span><div class="pdf-value">${data.state || ''}</div></div>
-                                            <div class="flex flex-col"><span class="pdf-label">Pin Code <span class="text-red-500">*</span></span><div class="pdf-value font-mono">${data.pincode || ''}</div></div>
+                                    <div class="bg-blue-50/50 p-4 rounded-2xl border border-blue-100 relative overflow-hidden">
+                                        <div class="absolute right-0 top-0 w-16 h-16 bg-[#1F5FBF] opacity-5 rounded-bl-full"></div>
+                                        <div class="flex items-center border-b-[3px] border-blue-100 pb-2 mb-4 relative z-10">
+                                            <div class="w-6 h-6 bg-[#1F5FBF] rounded flex items-center justify-center text-white text-[11px] font-black mr-3 shadow-sm">2</div>
+                                            <h4 class="font-['Montserrat'] text-[13px] font-bold text-[#1F5FBF] uppercase tracking-wider">Course Enrollment</h4>
+                                        </div>
+                                        <div class="grid grid-cols-2 gap-x-6 gap-y-4 px-2 relative z-10">
+                                            <div class="col-span-2 flex flex-col"><span class="pdf-label text-[#1F5FBF]/70">Selected Course <span class="text-red-500">*</span></span><div class="pdf-value text-[#1F5FBF] border-[#1F5FBF]/30">${programName}</div></div>
+                                            <div class="flex flex-col"><span class="pdf-label text-[#1F5FBF]/70">Program Category</span><div class="pdf-value border-[#1F5FBF]/30">${data.type === 'Both' ? 'Tuition + Professional Skills' : (data.type === 'Skill' ? 'Professional & AI Skills' : 'Academic Tuition')}</div></div>
+                                            <div class="flex flex-col"><span class="pdf-label text-[#1F5FBF]/70">Duration / Medium</span><div class="pdf-value border-[#1F5FBF]/30">${dur}</div></div>
+                                            <div class="col-span-2 flex flex-col"><span class="pdf-label text-[#1F5FBF]/70">Preferred Batch Timing</span><div class="pdf-value border-[#1F5FBF]/30">${data.batchTiming}</div></div>
+                                            ${data.freeOffer && data.freeOffer !== 'None' ? `<div class="col-span-2 flex flex-col mt-2"><span class="pdf-label text-[#F59E0B]">Free Add-on Offer Applied</span><div class="pdf-value text-[#D97706] border-[#F59E0B]/30">${data.freeOffer}</div></div>` : ''}
                                         </div>
                                     </div>
-                                </div>
-                            </div>
 
-                            <!-- RIGHT COLUMN -->
-                            <div class="w-[34%] flex flex-col space-y-6">
-                                
-                                <!-- Photo Area -->
-                                <div class="border border-slate-200 bg-slate-50/50 rounded-2xl p-4 flex flex-col items-center justify-center relative shadow-sm h-[200px]">
-                                    <div class="absolute top-0 right-0 bg-[#0A1E4D] text-white text-[8px] font-bold px-3 py-1 rounded-bl-xl rounded-tr-xl uppercase tracking-wider shadow-sm">Student Photo</div>
-                                    
-                                    <div class="w-32 h-36 mt-3 relative group">
-                                        ${!data.photoUrl ? `
-                                        <label class="w-full h-full border-[3px] border-dashed border-slate-300 rounded-xl flex flex-col items-center justify-center bg-white cursor-pointer overflow-hidden hover:border-[#F59E0B] transition-colors">
-                                            <input type="file" accept="image/*" onchange="window.handleImageUpload(this, 'photoUrl', '${data.id}')" class="hidden print:hidden" />
-                                            <div class="flex flex-col items-center justify-center h-full text-center p-2"><i data-lucide="user-square" class="w-8 h-8 text-slate-300 mb-1"></i><span class="font-bold text-[10px] text-slate-400 print:hidden leading-tight">Click to Upload<br/>Student Photo</span><span class="text-[8px] text-slate-300 mt-2 font-medium block print:block hidden">Affix Passport<br/>Size Photo</span></div>
-                                        </label>
-                                        ` : `
-                                        <div class="w-full h-full border-[3px] border-solid border-slate-200 rounded-xl overflow-hidden relative">
-                                            <img src="${data.photoUrl}" alt="Student" class="w-full h-full object-cover rounded-xl" />
-                                            <div class="absolute inset-0 bg-slate-900/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center space-x-2 print:hidden backdrop-blur-sm">
-                                                <button type="button" onclick="window.viewAttachment('${data.photoUrl}')" class="p-2 bg-white text-blue-600 rounded-full hover:bg-blue-50 shadow-lg transform hover:scale-110 transition-all" title="View"><i data-lucide="eye" class="w-4 h-4"></i></button>
-                                                <button type="button" onclick="window.removeAttachment('photoUrl', '${data.id}')" class="p-2 bg-white text-red-600 rounded-full hover:bg-red-50 shadow-lg transform hover:scale-110 transition-all" title="Remove"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                                    <!-- Sec 3: Parent Info -->
+                                    <div>
+                                        <div class="flex items-center border-b-[3px] border-slate-100 pb-2 mb-4">
+                                            <div class="w-6 h-6 bg-[#F59E0B] rounded flex items-center justify-center text-white text-[11px] font-black mr-3 shadow-sm">3</div>
+                                            <h4 class="font-['Montserrat'] text-[13px] font-bold text-[#0A1E4D] uppercase tracking-wider">Parent / Guardian Info</h4>
+                                        </div>
+                                        <div class="grid grid-cols-2 gap-x-6 gap-y-4 px-2">
+                                            <div class="col-span-2 flex flex-col"><span class="pdf-label">Father's / Guardian's Name <span class="text-red-500">*</span></span><div class="pdf-value uppercase">${data.parentName}</div></div>
+                                            <div class="flex flex-col"><span class="pdf-label">Parent's Contact Number <span class="text-red-500">*</span></span><div class="pdf-value">${data.parentPhone !== '-' ? `<span class="text-slate-400 mr-1">+91</span>${data.parentPhone}` : ''}</div></div>
+                                            <div class="flex flex-col"><span class="pdf-label">Occupation</span><div class="pdf-value">${data.parentOccupation !== '-' ? data.parentOccupation : ''}</div></div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Sec 4: Address Info -->
+                                    <div>
+                                        <div class="flex items-center border-b-[3px] border-slate-100 pb-2 mb-4">
+                                            <div class="w-6 h-6 bg-[#0A1E4D] rounded flex items-center justify-center text-white text-[11px] font-black mr-3 shadow-sm">4</div>
+                                            <h4 class="font-['Montserrat'] text-[13px] font-bold text-[#0A1E4D] uppercase tracking-wider">Address Details</h4>
+                                        </div>
+                                        <div class="grid grid-cols-2 gap-x-6 gap-y-4 px-2">
+                                            <div class="col-span-2 flex flex-col"><span class="pdf-label">Residential Address <span class="text-red-500">*</span></span><div class="pdf-value">${data.address !== 'Not Provided' ? data.address : ''}</div></div>
+                                            <div class="flex flex-col"><span class="pdf-label">City / District</span><div class="pdf-value">${data.city || ''}</div></div>
+                                            <div class="grid grid-cols-2 gap-x-4">
+                                                <div class="flex flex-col"><span class="pdf-label">State</span><div class="pdf-value">${data.state || ''}</div></div>
+                                                <div class="flex flex-col"><span class="pdf-label">Pin Code <span class="text-red-500">*</span></span><div class="pdf-value font-mono">${data.pincode || ''}</div></div>
                                             </div>
                                         </div>
-                                        `}
                                     </div>
                                 </div>
 
-                                <!-- Documents Upload list -->
-                                <div>
-                                    <div class="flex items-center border-b-[3px] border-slate-100 pb-2 mb-4">
-                                        <div class="w-6 h-6 bg-[#F59E0B] rounded flex items-center justify-center text-white text-[11px] font-black mr-3 shadow-sm">5</div>
-                                        <h4 class="font-['Montserrat'] text-[13px] font-bold text-[#0A1E4D] uppercase tracking-wider">Documents Required</h4>
+                                <!-- RIGHT COLUMN -->
+                                <div class="w-[34%] flex flex-col space-y-6">
+                                    
+                                    <!-- Photo Area -->
+                                    <div class="border border-slate-200 bg-slate-50/50 rounded-2xl p-4 flex flex-col items-center justify-center relative shadow-sm h-[200px]">
+                                        <div class="absolute top-0 right-0 bg-[#0A1E4D] text-white text-[8px] font-bold px-3 py-1 rounded-bl-xl rounded-tr-xl uppercase tracking-wider shadow-sm">Student Photo</div>
+                                        
+                                        <div class="w-32 h-36 mt-3 relative group">
+                                            ${!data.photoUrl ? `
+                                            <label class="w-full h-full border-[3px] border-dashed border-slate-300 rounded-xl flex flex-col items-center justify-center bg-white cursor-pointer overflow-hidden hover:border-[#F59E0B] transition-colors">
+                                                <input type="file" accept="image/*" onchange="window.handleImageUpload(this, 'photoUrl', '${data.id}')" class="hidden print:hidden" />
+                                                <div class="flex flex-col items-center justify-center h-full text-center p-2"><i data-lucide="user-square" class="w-8 h-8 text-slate-300 mb-1"></i><span class="font-bold text-[10px] text-slate-400 print:hidden leading-tight">Click to Upload<br/>Student Photo</span><span class="text-[8px] text-slate-300 mt-2 font-medium block print:block hidden">Affix Passport<br/>Size Photo</span></div>
+                                            </label>
+                                            ` : `
+                                            <div class="w-full h-full border-[3px] border-solid border-slate-200 rounded-xl overflow-hidden relative">
+                                                <img src="${data.photoUrl}" alt="Student" class="w-full h-full object-cover rounded-xl" />
+                                                <div class="absolute inset-0 bg-slate-900/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center space-x-2 print:hidden backdrop-blur-sm">
+                                                    <button type="button" onclick="window.viewAttachment('${data.photoUrl}')" class="p-2 bg-white text-blue-600 rounded-full hover:bg-blue-50 shadow-lg transform hover:scale-110 transition-all" title="View"><i data-lucide="eye" class="w-4 h-4"></i></button>
+                                                    <button type="button" onclick="window.removeAttachment('photoUrl', '${data.id}')" class="p-2 bg-white text-red-600 rounded-full hover:bg-red-50 shadow-lg transform hover:scale-110 transition-all" title="Remove"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                                                </div>
+                                            </div>
+                                            `}
+                                        </div>
                                     </div>
-                                    <div class="space-y-2.5 px-2">
-                                        ${renderDocItem('docAadhaar', 'Aadhaar Card Copy')}
-                                        ${renderDocItem('docMarksheet', 'Previous Marksheet')}
-                                        ${renderDocItem('docLeavingCert', 'School Leaving Cert.')}
+
+                                    <!-- Documents Upload list -->
+                                    <div>
+                                        <div class="flex items-center border-b-[3px] border-slate-100 pb-2 mb-4">
+                                            <div class="w-6 h-6 bg-[#F59E0B] rounded flex items-center justify-center text-white text-[11px] font-black mr-3 shadow-sm">5</div>
+                                            <h4 class="font-['Montserrat'] text-[13px] font-bold text-[#0A1E4D] uppercase tracking-wider">Documents Required</h4>
+                                        </div>
+                                        <div class="space-y-2.5 px-2">
+                                            ${renderDocItem('docAadhaar', 'Aadhaar Card Copy')}
+                                            ${renderDocItem('docMarksheet', 'Previous Marksheet')}
+                                            ${renderDocItem('docLeavingCert', 'School Leaving Cert.')}
+                                        </div>
                                     </div>
                                 </div>
+                            </div>
 
-                                <!-- Verification Box -->
-                                <div class="mt-auto bg-slate-100/80 border border-slate-200 rounded-2xl p-4 relative shadow-sm">
-                                    <div class="absolute top-0 right-0 bg-[#0A1E4D] text-white text-[7px] font-bold px-3 py-1 rounded-bl-xl rounded-tr-xl uppercase tracking-widest shadow-sm">Terms & Verify</div>
-                                    <div class="flex items-start mt-2">
-                                        <div class="w-3 h-3 bg-[#0A1E4D] rounded-sm flex items-center justify-center mr-2 mt-0.5 flex-shrink-0"><i data-lucide="check" class="w-2 h-2 text-white"></i></div>
-                                        <p class="text-[8px] font-medium text-slate-600 leading-snug text-justify">
-                                            I hereby declare that the information provided above is true and correct to the best of my knowledge. I agree to abide by the rules and regulations of Udaan Vibrant Academy. I understand that a minimum of 75% attendance is mandatory. Fees are non-refundable.
-                                        </p>
-                                    </div>
+                            <div class="h-[52px] bg-[#0A1E4D] w-full flex items-center justify-between px-10 relative z-10 text-white mt-auto flex-shrink-0">
+                                <div class="flex space-x-8 text-[10px] font-semibold tracking-wide">
+                                    <div class="flex items-center"><i data-lucide="globe" class="w-3.5 h-3.5 text-[#F59E0B] mr-2"></i> www.uvainfo.in</div>
+                                    <div class="flex items-center"><i data-lucide="phone" class="w-3.5 h-3.5 text-[#F59E0B] mr-2"></i> +91 94080 97177</div>
+                                    <div class="flex items-center"><i data-lucide="mail" class="w-3.5 h-3.5 text-[#F59E0B] mr-2"></i> uvainfo7@gmail.com</div>
+                                </div>
+                                <div class="bg-white p-1 rounded-sm shadow-sm flex items-center justify-center">
+                                    <svg class="w-7 h-7 text-[#0A1E4D]" viewBox="0 0 24 24" fill="currentColor"><path d="M3 3h8v8H3V3zm2 2v4h4V5H5zm8-2h8v8h-8V3zm2 2v4h4V5h-4zM3 13h8v8H3v-8zm2 2v4h4v-4H5zm13-2h-2v2h2v-2zm-2 2h-2v2h2v-2zm2 2h-2v2h2v-2zm-2 2h-2v2h2v-2zm2 0h2v2h-2v-2zm-6-6h2v2h-2v-2z"/></svg>
                                 </div>
                             </div>
                         </div>
 
-                        <!-- 4. SIGNATURES (Spans Full Width Bottom) -->
-                        <div class="px-10 pb-6 relative z-10 mt-auto flex justify-between items-end">
-                            
-                            <div class="text-center group w-44 relative">
-                                <label class="flex flex-col items-center cursor-pointer">
-                                    <input type="file" accept="image/*" onchange="window.handleImageUpload(this, 'studentSignUrl', '${data.id}')" class="hidden print:hidden" />
-                                    <div class="w-full border-b-[2px] border-slate-400 h-14 flex items-end justify-center pb-1 transition-colors group-hover:border-[#F59E0B]">
-                                        ${data.studentSignUrl ? `<img src="${data.studentSignUrl}" class="max-h-12 object-contain" />` : `<span class="text-[9px] text-slate-300 print:hidden font-bold tracking-wider">Click to Sign</span>`}
-                                    </div>
-                                    <p class="text-[9px] font-extrabold text-[#0A1E4D] mt-1.5 uppercase tracking-widest">Student's Signature</p>
-                                </label>
-                                ${data.studentSignUrl ? `
-                                    <div class="absolute -top-3 -right-3 flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity print:hidden z-20">
-                                        <button type="button" onclick="window.viewAttachment('${data.studentSignUrl}')" class="p-1.5 bg-white text-blue-600 rounded-full shadow border hover:bg-blue-50"><i data-lucide="eye" class="w-3 h-3"></i></button>
-                                        <button type="button" onclick="window.removeAttachment('studentSignUrl', '${data.id}')" class="p-1.5 bg-white text-red-600 rounded-full shadow border hover:bg-red-50"><i data-lucide="trash-2" class="w-3 h-3"></i></button>
-                                    </div>
-                                ` : ''}
-                            </div>
-                            
-                            <div class="text-center group w-44 relative">
-                                <label class="flex flex-col items-center cursor-pointer">
-                                    <input type="file" accept="image/*" onchange="window.handleImageUpload(this, 'parentSignUrl', '${data.id}')" class="hidden print:hidden" />
-                                    <div class="w-full border-b-[2px] border-slate-400 h-14 flex items-end justify-center pb-1 transition-colors group-hover:border-[#F59E0B]">
-                                        ${data.parentSignUrl ? `<img src="${data.parentSignUrl}" class="max-h-12 object-contain" />` : `<span class="text-[9px] text-slate-300 print:hidden font-bold tracking-wider">Click to Sign</span>`}
-                                    </div>
-                                    <p class="text-[9px] font-extrabold text-[#0A1E4D] mt-1.5 uppercase tracking-widest">Parent's Signature</p>
-                                </label>
-                                ${data.parentSignUrl ? `
-                                    <div class="absolute -top-3 -right-3 flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity print:hidden z-20">
-                                        <button type="button" onclick="window.viewAttachment('${data.parentSignUrl}')" class="p-1.5 bg-white text-blue-600 rounded-full shadow border hover:bg-blue-50"><i data-lucide="eye" class="w-3 h-3"></i></button>
-                                        <button type="button" onclick="window.removeAttachment('parentSignUrl', '${data.id}')" class="p-1.5 bg-white text-red-600 rounded-full shadow border hover:bg-red-50"><i data-lucide="trash-2" class="w-3 h-3"></i></button>
-                                    </div>
-                                ` : ''}
-                            </div>
-                            
-                            <div class="text-center group w-44 relative">
-                                <label class="flex flex-col items-center cursor-pointer">
-                                    <input type="file" accept="image/*" onchange="window.handleImageUpload(this, 'adminSignUrl')" class="hidden print:hidden" />
-                                    <div class="w-full border-b-[3px] border-[#0A1E4D] h-14 flex items-end justify-center pb-1 transition-colors group-hover:border-[#F59E0B]">
-                                        ${state.adminSignUrl ? `<img src="${state.adminSignUrl}" class="max-h-12 object-contain" />` : `<span class="text-[9px] text-slate-300 print:hidden font-bold tracking-wider">Click to Sign</span>`}
-                                    </div>
-                                    <p class="text-[9px] font-extrabold text-[#0A1E4D] mt-1.5 uppercase tracking-widest">Authorized Signatory</p>
-                                </label>
-                                ${state.adminSignUrl ? `
-                                    <div class="absolute -top-3 -right-3 flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity print:hidden z-20">
-                                        <button type="button" onclick="window.viewAttachment('${state.adminSignUrl}')" class="p-1.5 bg-white text-blue-600 rounded-full shadow border hover:bg-blue-50"><i data-lucide="eye" class="w-3 h-3"></i></button>
-                                        <button type="button" onclick="window.removeAttachment('adminSignUrl')" class="p-1.5 bg-white text-red-600 rounded-full shadow border hover:bg-red-50"><i data-lucide="trash-2" class="w-3 h-3"></i></button>
-                                    </div>
-                                ` : ''}
-                            </div>
-                            
-                        </div>
+                        <!-- PAGE BREAK FOR T&C -->
+                        <div class="html2pdf__page-break" style="margin: 0; padding: 0; height: 0;"></div>
 
-                        <!-- 5. FOOTER -->
-                        <div class="h-[52px] bg-[#0A1E4D] w-full flex items-center justify-between px-10 relative z-10 text-white mt-auto">
-                            <div class="flex space-x-8 text-[10px] font-semibold tracking-wide">
-                                <div class="flex items-center"><i data-lucide="globe" class="w-3.5 h-3.5 text-[#F59E0B] mr-2"></i> www.uvainfo.in</div>
-                                <div class="flex items-center"><i data-lucide="phone" class="w-3.5 h-3.5 text-[#F59E0B] mr-2"></i> +91 94080 97177</div>
-                                <div class="flex items-center"><i data-lucide="mail" class="w-3.5 h-3.5 text-[#F59E0B] mr-2"></i> uvainfo7@gmail.com</div>
+                        <!-- Page 2: Terms & Conditions -->
+                        <div class="a4-document bg-white flex flex-col relative print:shadow-none">
+                            <img src="${state.formLogoUrl}" class="watermark-logo" />
+                            
+                            <div class="flex h-[100px] w-full relative z-10 border-b-[6px] border-[#0A1E4D] bg-slate-50 items-center px-10">
+                                <h2 class="font-['Montserrat'] font-black text-2xl text-[#0A1E4D] uppercase tracking-widest">Terms & Conditions</h2>
                             </div>
-                            <div class="bg-white p-1 rounded-sm shadow-sm flex items-center justify-center">
-                                <!-- Small generic QR representation for aesthetics -->
-                                <svg class="w-7 h-7 text-[#0A1E4D]" viewBox="0 0 24 24" fill="currentColor"><path d="M3 3h8v8H3V3zm2 2v4h4V5H5zm8-2h8v8h-8V3zm2 2v4h4V5h-4zM3 13h8v8H3v-8zm2 2v4h4v-4H5zm13-2h-2v2h2v-2zm-2 2h-2v2h2v-2zm2 2h-2v2h2v-2zm-2 2h-2v2h2v-2zm2 0h2v2h-2v-2zm-6-6h2v2h-2v-2z"/></svg>
+
+                            <div class="px-10 py-8 relative z-10 flex-1 flex flex-col">
+                                <ol class="list-decimal pl-5 space-y-2.5 text-[11px] text-slate-800 text-justify leading-relaxed font-semibold">
+                                    <li>Admission is confirmed only after successful submission of the admission form and payment of applicable fees.</li>
+                                    <li>All fees paid to the academy, including Admission Fees, Registration Fees, Course Fees, Tuition Fees, Material Fees, and Examination Fees, are strictly NON-REFUNDABLE under any circumstances.</li>
+                                    <li>Fees once paid are NON-TRANSFERABLE, NON-ADJUSTABLE, NON-REPLACEABLE, and cannot be converted into another course, batch, service, or student account.</li>
+                                    <li>A student cannot transfer his/her admission, seat, or course enrollment to another person.</li>
+                                    <li>No refund, adjustment, or credit shall be provided due to absence, personal reasons, relocation, medical issues, job commitments, examinations, family circumstances, or discontinuation of studies.</li>
+                                    <li>Batch timings, faculty allocation, classroom allocation, syllabus sequence, and course schedules may be modified by the academy whenever required.</li>
+                                    <li>Students must maintain discipline, punctuality, and respectful behavior toward faculty, staff, and fellow students.</li>
+                                    <li>Any misconduct, abusive language, harassment, cheating, damage to academy property, or behavior affecting the reputation of the academy may result in cancellation of admission without refund.</li>
+                                    <li>Regular attendance is the responsibility of the student. The academy shall not be responsible for academic loss caused by absence or irregular attendance.</li>
+                                    <li>Study materials, notes, presentations, recordings, software files, and academy content are the intellectual property of Udaan Vibrant Academy and may not be copied, sold, shared, recorded, reproduced, or distributed without written permission.</li>
+                                    <li>The academy provides education, training, guidance, and skill development only. The academy does not guarantee examination results, job placements, internships, promotions, business success, earnings, or academic performance.</li>
+                                    <li>Certificates will be issued only after successful completion of course requirements and clearance of all outstanding dues.</li>
+                                    <li>The academy shall not be responsible for loss, theft, or damage of personal belongings, mobile phones, laptops, documents, or valuables brought to the academy premises.</li>
+                                    <li>For online classes, students are responsible for maintaining their own internet connection, devices, software, and technical arrangements.</li>
+                                    <li>The academy reserves the right to modify fees, policies, rules, course structures, syllabus, and terms & conditions whenever necessary.</li>
+                                    <li>The decision of Udaan Vibrant Academy management shall be final and binding in all matters relating to admissions, fees, attendance, discipline, certification, and administration.</li>
+                                </ol>
+
+                                <div class="mt-6 border-t-[3px] border-slate-100 pt-6">
+                                    <h3 class="font-['Montserrat'] font-bold text-base text-[#0A1E4D] mb-3 uppercase tracking-wider">Declaration</h3>
+                                    <p class="text-[11px] font-bold text-slate-700 leading-relaxed text-justify italic mb-4">
+                                        I hereby declare that all information provided by me is true and correct. I have carefully read, understood, and accepted all Terms & Conditions of Udaan Vibrant Academy and agree to abide by all academy rules and policies.
+                                    </p>
+                                    <div class="flex items-start bg-slate-50 p-3 rounded-xl border border-slate-200">
+                                        <div class="w-5 h-5 bg-[#0A1E4D] rounded flex items-center justify-center mr-3 flex-shrink-0"><i data-lucide="check" class="w-3.5 h-3.5 text-white"></i></div>
+                                        <p class="text-[11px] font-extrabold text-slate-900 mt-0.5">I have read and agree to all Terms & Conditions of Udaan Vibrant Academy.</p>
+                                    </div>
+                                </div>
+
+                                <div class="mt-auto flex justify-between items-end pb-8 pt-10">
+                                    <div class="text-center group relative w-48 flex flex-col items-center">
+                                        <div class="w-full border-b-[2px] border-slate-400 h-14 flex items-end justify-center pb-1">
+                                            ${data.studentSignUrl ? `<img src="${data.studentSignUrl}" class="max-h-12 object-contain" />` : ``}
+                                        </div>
+                                        <p class="text-[10px] font-extrabold text-[#0A1E4D] mt-2 uppercase tracking-widest">Student Signature</p>
+                                    </div>
+                                    <div class="text-center group relative w-48 flex flex-col items-center">
+                                        <div class="w-full border-b-[2px] border-slate-400 h-14 flex items-end justify-center pb-1">
+                                            ${data.parentSignUrl ? `<img src="${data.parentSignUrl}" class="max-h-12 object-contain" />` : ``}
+                                        </div>
+                                        <p class="text-[10px] font-extrabold text-[#0A1E4D] mt-2 uppercase tracking-widest">Parent / Guardian Signature</p>
+                                    </div>
+                                    <div class="text-center group relative w-32 flex flex-col items-center">
+                                        <div class="w-full border-b-[2px] border-slate-400 h-14 flex items-end justify-center pb-1">
+                                            <span class="font-bold text-sm text-slate-800">${new Date(data.date).toLocaleDateString('en-IN')}</span>
+                                        </div>
+                                        <p class="text-[10px] font-extrabold text-[#0A1E4D] mt-2 uppercase tracking-widest">Date</p>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="h-[52px] bg-[#0A1E4D] w-full flex items-center justify-between px-10 relative z-10 text-white mt-auto flex-shrink-0">
+                                <div class="flex space-x-8 text-[10px] font-semibold tracking-wide">
+                                    <div class="flex items-center"><i data-lucide="globe" class="w-3.5 h-3.5 text-[#F59E0B] mr-2"></i> www.uvainfo.in</div>
+                                    <div class="flex items-center"><i data-lucide="phone" class="w-3.5 h-3.5 text-[#F59E0B] mr-2"></i> +91 94080 97177</div>
+                                    <div class="flex items-center"><i data-lucide="mail" class="w-3.5 h-3.5 text-[#F59E0B] mr-2"></i> uvainfo7@gmail.com</div>
+                                </div>
+                                <div class="bg-white p-1 rounded-sm shadow-sm flex items-center justify-center">
+                                    <svg class="w-7 h-7 text-[#0A1E4D]" viewBox="0 0 24 24" fill="currentColor"><path d="M3 3h8v8H3V3zm2 2v4h4V5H5zm8-2h8v8h-8V3zm2 2v4h4V5h-4zM3 13h8v8H3v-8zm2 2v4h4v-4H5zm13-2h-2v2h2v-2zm-2 2h-2v2h2v-2zm2 2h-2v2h2v-2zm-2 2h-2v2h2v-2zm2 0h2v2h-2v-2zm-6-6h2v2h-2v-2z"/></svg>
+                                </div>
                             </div>
                         </div>
 
@@ -2610,7 +2749,371 @@
             </div>`;
         }
 
-        // --- WHATSAPP MODAL TEMPLATE ---
+        // --- PERFORMANCE REPORT TEMPLATE (Printable PDF Export) ---
+        function PerformanceReportTemplate() {
+            const data = state.performanceReportData;
+            const perf = data.performance;
+            
+            let totalObtained = 0, totalMax = 0;
+            perf.tests.forEach(t => { totalObtained += t.obtained; totalMax += t.total; });
+            const avgScore = totalMax > 0 ? Math.round((totalObtained / totalMax) * 100) : 0;
+            
+            let totalSyllabusPercent = 0;
+            perf.syllabus.forEach(s => totalSyllabusPercent += s.percent);
+            const overallSyllabus = perf.syllabus.length > 0 ? Math.round(totalSyllabusPercent / perf.syllabus.length) : 0;
+
+            let testsHTML = perf.tests.map((t, i) => `
+                <tr class="border-b border-slate-200 text-xs md:text-sm">
+                    <td class="p-2 border-r border-slate-300 text-center">${i + 1}</td>
+                    <td class="p-2 border-r border-slate-300 font-bold">${t.topic}</td>
+                    <td class="p-2 border-r border-slate-300 text-center">${new Date(t.date).toLocaleDateString('en-IN')}</td>
+                    <td class="p-2 border-r border-slate-300 text-center">${t.total}</td>
+                    <td class="p-2 border-r border-slate-300 text-center font-bold text-blue-600">${t.obtained}</td>
+                    <td class="p-2 text-center font-bold">${Math.round((t.obtained/t.total)*100)}%</td>
+                </tr>
+            `).join('');
+            if(!testsHTML) testsHTML = `<tr><td colspan="6" class="p-4 text-center text-slate-500 italic text-sm">No tests recorded yet.</td></tr>`;
+
+            let syllabusHTML = perf.syllabus.map((s, i) => `
+                <tr class="border-b border-slate-200 text-xs md:text-sm">
+                    <td class="p-2 border-r border-slate-300 text-center">${i + 1}</td>
+                    <td class="p-2 border-r border-slate-300 font-bold">${s.subject}</td>
+                    <td class="p-2 border-r border-slate-300 text-center">
+                        <div class="w-full bg-slate-200 rounded-full h-2.5">
+                            <div class="bg-orange-500 h-2.5 rounded-full" style="width: ${s.percent}%"></div>
+                        </div>
+                    </td>
+                    <td class="p-2 text-center font-bold text-orange-600">${s.percent}%</td>
+                </tr>
+            `).join('');
+            if(!syllabusHTML) syllabusHTML = `<tr><td colspan="4" class="p-4 text-center text-slate-500 italic text-sm">No syllabus topics tracked yet.</td></tr>`;
+
+            return `
+            <div class="p-4 sm:p-8 max-w-4xl mx-auto bg-gray-50 min-h-[100dvh] print:p-0 print:bg-white animate-fade-in flex flex-col items-center">
+                <!-- Toolbar -->
+                <div class="w-full max-w-[794px] flex flex-col sm:flex-row justify-between items-center mb-6 print:hidden gap-3">
+                    <div class="flex items-center space-x-3 w-full sm:w-auto">
+                        <button onclick="window.closePerformanceReport()" class="px-5 py-2.5 bg-white border border-slate-300 rounded-xl hover:bg-slate-50 font-bold shadow-sm text-slate-700 transition-colors">← Back</button>
+                        <!-- Zoom Controls -->
+                        <div class="flex items-center space-x-1 bg-white border border-slate-300 rounded-xl px-2 py-1.5 shadow-sm">
+                            <button onclick="window.zoomOut()" class="p-1.5 hover:bg-slate-100 rounded text-slate-600 transition-colors" title="Zoom Out"><i data-lucide="zoom-out" class="w-4 h-4"></i></button>
+                            <button onclick="window.resetZoom()" class="px-2 text-[10px] uppercase tracking-widest font-bold text-slate-500 hover:text-slate-800 transition-colors" title="Reset Zoom">Fit</button>
+                            <button onclick="window.zoomIn()" class="p-1.5 hover:bg-slate-100 rounded text-slate-600 transition-colors" title="Zoom In"><i data-lucide="zoom-in" class="w-4 h-4"></i></button>
+                        </div>
+                    </div>
+                    <div class="flex space-x-3 w-full sm:w-auto justify-end">
+                        <button id="pdf-download-btn" onclick="window.generatePremiumPDF()" class="w-full sm:w-auto px-6 py-2.5 bg-purple-600 text-white rounded-xl hover:bg-purple-700 font-bold flex items-center justify-center space-x-2 shadow-sm transition-colors">
+                            <i data-lucide="download" class="w-4 h-4"></i> <span>Download PDF Report</span>
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="overflow-x-auto print:overflow-visible w-full flex justify-center">
+                    <div id="premium-admission-document" class="bg-white p-8 md:p-10 rounded-2xl shadow-xl print:shadow-none print:p-0 border-t-[8px] md:border-t-[12px] border-purple-600 border-x border-b w-[794px] min-w-[794px] max-w-[794px] mobile-scale-target flex-shrink-0">
+                        
+                        <div class="flex justify-between items-center border-b-[3px] border-purple-600 pb-6 mb-6">
+                            <div class="w-24 h-24 flex items-center justify-center overflow-hidden bg-white">
+                                <img src="${state.formLogoUrl}" alt="UVA Logo" class="w-full h-full object-contain" />
+                            </div>
+                            <div class="flex-1 text-center px-4">
+                                <h1 class="text-2xl md:text-3xl font-extrabold text-slate-900 tracking-tight">UDAAN VIBRANT ACADEMY</h1>
+                                <p class="text-sm text-slate-600 italic mt-1 font-bold">"Where Learning Takes Flight"</p>
+                                <div class="mt-3 inline-block bg-purple-600 text-white px-5 py-1.5 rounded-full font-bold uppercase tracking-widest text-[11px] shadow-sm">Student Performance Report</div>
+                            </div>
+                            <div class="w-24 h-24"></div>
+                        </div>
+
+                        <div class="flex justify-between items-center bg-purple-50 border border-purple-200 p-5 rounded-xl mb-6">
+                            <div>
+                                <p class="text-[10px] text-purple-600 font-bold uppercase tracking-widest">Student Information</p>
+                                <p class="text-xl font-black text-slate-900 mt-1">${data.student.name}</p>
+                                <p class="text-xs font-bold text-slate-600 mt-1.5">ID: <span class="font-mono text-purple-700">${data.student.id}</span> | Batch: ${data.batch || 'N/A'}</p>
+                            </div>
+                            <div class="text-right">
+                                <p class="text-[10px] text-purple-600 font-bold uppercase tracking-widest mb-1">Generated On</p>
+                                <span class="bg-purple-600 text-white px-4 py-1.5 rounded-lg text-sm font-bold shadow-sm">${data.generatedAt}</span>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-3 gap-4 mb-8">
+                            <div class="bg-blue-50 border border-blue-200 p-4 rounded-xl text-center">
+                                <p class="text-[10px] font-bold text-blue-600 uppercase tracking-wider">Average Test Score</p>
+                                <p class="text-2xl font-black text-blue-700 mt-1">${avgScore}%</p>
+                            </div>
+                            <div class="bg-orange-50 border border-orange-200 p-4 rounded-xl text-center">
+                                <p class="text-[10px] font-bold text-orange-600 uppercase tracking-wider">Syllabus Completion</p>
+                                <p class="text-2xl font-black text-orange-700 mt-1">${overallSyllabus}%</p>
+                            </div>
+                            <div class="bg-purple-50 border border-purple-200 p-4 rounded-xl text-center">
+                                <p class="text-[10px] font-bold text-purple-600 uppercase tracking-wider">Total Tests Taken</p>
+                                <p class="text-2xl font-black text-purple-700 mt-1">${perf.tests.length}</p>
+                            </div>
+                        </div>
+
+                        <!-- Tests History -->
+                        <div class="mb-8">
+                            <h3 class="font-bold text-slate-800 border-b-2 border-slate-200 pb-2 mb-4 uppercase tracking-wider text-sm">Test History & Scores</h3>
+                            <table class="w-full text-left border-collapse border-2 border-slate-300">
+                                <thead>
+                                    <tr class="bg-slate-100 border-b-2 border-slate-300 text-[10px] font-extrabold text-slate-800 uppercase tracking-wider">
+                                        <th class="p-2 border-r border-slate-300 text-center w-10">#</th>
+                                        <th class="p-2 border-r border-slate-300">Test Topic</th>
+                                        <th class="p-2 border-r border-slate-300 text-center">Date</th>
+                                        <th class="p-2 border-r border-slate-300 text-center">Max Marks</th>
+                                        <th class="p-2 border-r border-slate-300 text-center">Obtained</th>
+                                        <th class="p-2 text-center">% Score</th>
+                                    </tr>
+                                </thead>
+                                <tbody>${testsHTML}</tbody>
+                            </table>
+                        </div>
+
+                        <!-- Syllabus Progress -->
+                        <div class="mb-8">
+                            <h3 class="font-bold text-slate-800 border-b-2 border-slate-200 pb-2 mb-4 uppercase tracking-wider text-sm">Syllabus Completion Tracker</h3>
+                            <table class="w-full text-left border-collapse border-2 border-slate-300">
+                                <thead>
+                                    <tr class="bg-slate-100 border-b-2 border-slate-300 text-[10px] font-extrabold text-slate-800 uppercase tracking-wider">
+                                        <th class="p-2 border-r border-slate-300 text-center w-10">#</th>
+                                        <th class="p-2 border-r border-slate-300">Subject / Module</th>
+                                        <th class="p-2 border-r border-slate-300 text-center w-1/2">Progress Bar</th>
+                                        <th class="p-2 text-center w-16">Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody>${syllabusHTML}</tbody>
+                            </table>
+                        </div>
+
+                        <!-- Remarks -->
+                        <div class="mb-6">
+                            <h3 class="font-bold text-slate-800 border-b-2 border-slate-200 pb-2 mb-4 uppercase tracking-wider text-sm">Faculty Remarks & Behavioral Notes</h3>
+                            <div class="bg-slate-50 border border-slate-200 p-4 rounded-xl min-h-[100px]">
+                                <p class="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">${perf.remarks || '<span class="text-slate-400 italic">No specific remarks recorded for this period.</span>'}</p>
+                            </div>
+                        </div>
+
+                        <!-- Signatures -->
+                        <div class="flex justify-between items-end mt-12 pt-8 border-t-2 border-slate-200">
+                            <div class="text-center group relative w-48">
+                                <label class="cursor-pointer flex flex-col items-center">
+                                    <input type="file" accept="image/*" onchange="window.handleImageUpload(this, 'adminSignUrl')" class="hidden print:hidden" />
+                                    <div class="w-full border-b-2 border-slate-400 mb-2 h-12 flex items-end justify-center hover:border-purple-600 transition-colors">
+                                        ${state.adminSignUrl ? `<img src="${state.adminSignUrl}" class="max-h-12 object-contain" />` : `<span class="text-xs text-slate-300 print:hidden font-medium">Click to Sign</span>`}
+                                    </div>
+                                    <p class="text-[10px] font-bold text-slate-700 uppercase tracking-wide">Faculty Signature</p>
+                                </label>
+                            </div>
+                            <div class="text-center group relative w-48">
+                                <div class="border-b-2 border-slate-400 mb-2 h-12 flex items-end justify-center"></div>
+                                <p class="text-[10px] font-bold text-slate-700 uppercase tracking-wide">Parent's Signature</p>
+                            </div>
+                        </div>
+                        
+                    </div>
+                </div>
+            </div>`;
+        }
+
+        function PerformanceTemplate() {
+            const batches = getPerfBatches();
+            const filteredStudents = getPerfFilteredStudents();
+
+            let batchOptions = batches.map(b => `<option value="${b}" ${state.perfSelectedBatch===b?'selected':''}>${b}</option>`).join('');
+            let studentOptions = filteredStudents.map(s => `<option value="${s.id}" ${state.perfSelectedStudentId===s.id?'selected':''}>${s.name} (${s.id})</option>`).join('');
+
+            let dashboardHTML = '';
+            if (state.perfSelectedStudentId) {
+                const student = state.students.find(s => s.id === state.perfSelectedStudentId);
+                
+                if (!student) {
+                    state.perfSelectedStudentId = null;
+                } else {
+                    window.ensurePerfData(student.id);
+                    const perf = state.performanceData[student.id];
+
+                    let totalObtained = 0, totalMax = 0;
+                    perf.tests.forEach(t => { totalObtained += t.obtained; totalMax += t.total; });
+                    const avgScore = totalMax > 0 ? Math.round((totalObtained / totalMax) * 100) : 0;
+                    
+                    let totalSyllabusPercent = 0;
+                    perf.syllabus.forEach(s => totalSyllabusPercent += s.percent);
+                    const overallSyllabus = perf.syllabus.length > 0 ? Math.round(totalSyllabusPercent / perf.syllabus.length) : 0;
+
+                    let testsHTML = perf.tests.map(t => `
+                        <div class="flex justify-between items-center p-3 bg-slate-50 border border-slate-200 rounded-xl mb-2 hover:border-blue-300 transition-colors">
+                            <div>
+                                <p class="font-bold text-slate-800 text-sm">${t.topic}</p>
+                                <p class="text-xs text-slate-500 font-medium mt-0.5">${new Date(t.date).toLocaleDateString('en-IN')}</p>
+                            </div>
+                            <div class="flex items-center space-x-4">
+                                <div class="text-right">
+                                    <p class="font-extrabold text-blue-600 text-sm">${t.obtained} <span class="text-slate-400 text-xs font-medium">/ ${t.total}</span></p>
+                                    <p class="text-[10px] text-slate-400 uppercase tracking-widest font-bold">${Math.round((t.obtained/t.total)*100)}%</p>
+                                </div>
+                                <button onclick="window.deleteTestScore('${t.id}')" class="text-red-400 hover:text-red-600 p-1"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                            </div>
+                        </div>
+                    `).join('');
+                    if(!testsHTML) testsHTML = `<p class="text-slate-400 text-sm text-center py-4">No tests recorded yet.</p>`;
+
+                    let syllabusHTML = perf.syllabus.map(s => `
+                        <div class="mb-4">
+                            <div class="flex justify-between text-xs font-bold mb-1.5">
+                                <span class="text-slate-700">${s.subject}</span>
+                                <span class="text-orange-600">${s.percent}%</span>
+                            </div>
+                            <input type="range" min="0" max="100" value="${s.percent}" 
+                                   oninput="window.updateSyllabusPercent('${s.id}', this.value)" 
+                                   onchange="window.saveSyllabusChange()" 
+                                   class="w-full accent-orange-500 h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer" />
+                        </div>
+                    `).join('');
+                    if(!syllabusHTML) syllabusHTML = `<p class="text-slate-400 text-sm text-center py-4">No subjects added yet.</p>`;
+
+                    dashboardHTML = `
+                    <div class="animate-fade-in mt-6">
+                        <div class="flex justify-between items-center mb-4">
+                            <h3 class="text-lg font-bold text-slate-800 border-l-4 border-purple-500 pl-3">${student.name}'s Dashboard</h3>
+                            <button onclick="window.openPerformanceReport('${student.id}')" class="bg-purple-600 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-purple-700 flex items-center shadow-md transition-colors">
+                                <i data-lucide="file-text" class="w-4 h-4 mr-2"></i> Export PDF Report
+                            </button>
+                        </div>
+                        
+                        <!-- Stats Row -->
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                            <div class="bg-gradient-to-br from-blue-500 to-blue-700 rounded-2xl p-5 text-white shadow-md flex flex-col justify-between">
+                                <div class="flex justify-between items-center mb-2"><span class="text-xs font-bold uppercase tracking-widest text-blue-100">Average Score</span><i data-lucide="award" class="w-5 h-5 text-blue-200"></i></div>
+                                <div class="text-3xl font-black">${avgScore}%</div>
+                            </div>
+                            <div class="bg-gradient-to-br from-orange-500 to-orange-700 rounded-2xl p-5 text-white shadow-md flex flex-col justify-between">
+                                <div class="flex justify-between items-center mb-2"><span class="text-xs font-bold uppercase tracking-widest text-orange-100">Syllabus Complete</span><i data-lucide="book-open" class="w-5 h-5 text-orange-200"></i></div>
+                                <div class="text-3xl font-black">${overallSyllabus}%</div>
+                            </div>
+                            <div class="bg-gradient-to-br from-purple-500 to-purple-700 rounded-2xl p-5 text-white shadow-md flex flex-col justify-between">
+                                <div class="flex justify-between items-center mb-2"><span class="text-xs font-bold uppercase tracking-widest text-purple-100">Tests Taken</span><i data-lucide="file-text" class="w-5 h-5 text-purple-200"></i></div>
+                                <div class="text-3xl font-black">${perf.tests.length}</div>
+                            </div>
+                        </div>
+
+                        <!-- 3 Columns Details -->
+                        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                            <!-- Tests -->
+                            <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 flex flex-col h-[400px]">
+                                <div class="flex justify-between items-center mb-4 border-b pb-3">
+                                    <h3 class="font-bold text-slate-800 flex items-center"><i data-lucide="check-circle" class="w-4 h-4 mr-2 text-blue-500"></i> Test Scores</h3>
+                                    <button onclick="window.openAddTestModal()" class="text-xs bg-blue-50 text-blue-600 font-bold px-3 py-1.5 rounded-lg hover:bg-blue-100 transition-colors">Add Test</button>
+                                </div>
+                                <div class="overflow-y-auto flex-1 pr-1">${testsHTML}</div>
+                            </div>
+
+                            <!-- Syllabus -->
+                            <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 flex flex-col h-[400px]">
+                                <div class="flex justify-between items-center mb-4 border-b pb-3">
+                                    <h3 class="font-bold text-slate-800 flex items-center"><i data-lucide="book" class="w-4 h-4 mr-2 text-orange-500"></i> Syllabus Track</h3>
+                                    <button onclick="window.addSyllabusSubject()" class="text-xs bg-orange-50 text-orange-600 font-bold px-3 py-1.5 rounded-lg hover:bg-orange-100 transition-colors">Add Subject</button>
+                                </div>
+                                <div class="overflow-y-auto flex-1 pr-1">${syllabusHTML}</div>
+                            </div>
+
+                            <!-- Remarks -->
+                            <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 flex flex-col h-[400px]">
+                                <div class="flex justify-between items-center mb-4 border-b pb-3">
+                                    <h3 class="font-bold text-slate-800 flex items-center"><i data-lucide="message-square" class="w-4 h-4 mr-2 text-purple-500"></i> Faculty Remarks</h3>
+                                    <button onclick="window.savePerfRemark(); alert('Remarks Saved!')" class="text-xs bg-slate-900 text-white font-bold px-3 py-1.5 rounded-lg hover:bg-slate-800 transition-colors shadow-sm">Save Note</button>
+                                </div>
+                                <textarea oninput="window.updatePerfRemark(this.value)" placeholder="Enter behavioral notes, areas of improvement, parent meeting notes..." class="w-full flex-1 p-3 bg-slate-50 border border-slate-200 rounded-xl resize-none outline-none focus:ring-2 focus:ring-purple-500 text-sm text-slate-700 leading-relaxed shadow-inner">${perf.remarks}</textarea>
+                            </div>
+                        </div>
+                    </div>`;
+                }
+            }
+            
+            if (!state.perfSelectedStudentId) {
+                dashboardHTML = `
+                <div class="flex items-center justify-center h-64 border-2 border-dashed border-slate-300 rounded-2xl bg-white p-4 mt-6">
+                    <div class="text-center">
+                        <i data-lucide="user-search" class="mx-auto text-slate-300 mb-3 w-10 h-10"></i>
+                        <p class="text-slate-500 font-bold text-lg">Select a Student</p>
+                        <p class="text-slate-400 text-sm mt-1">Choose a student above to view their performance tracking.</p>
+                    </div>
+                </div>`;
+            }
+
+            return `
+            <div class="p-4 sm:p-6 md:p-8 bg-slate-50 min-h-full animate-fade-in w-full overflow-hidden">
+                <div class="mb-6 md:mb-8">
+                    <h2 class="text-2xl md:text-3xl font-extrabold text-slate-900 tracking-tight">Performance Tracking</h2>
+                    <p class="text-sm md:text-base text-slate-500 font-medium mt-1">Monitor test scores, syllabus completion, and faculty remarks.</p>
+                </div>
+                
+                <div class="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-slate-200">
+                    <h3 class="text-sm font-bold text-slate-800 mb-4 border-b pb-2 uppercase tracking-wider">Select Profile</h3>
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6">
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 mb-1.5 uppercase">Program Type</label>
+                            <select onchange="window.updatePerfFilter(this.value)" class="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none font-bold text-slate-700 transition-all text-sm">
+                                <option value="All" ${state.perfFilterCategory==='All'?'selected':''}>All Programs</option>
+                                <option value="Skill" ${state.perfFilterCategory==='Skill'?'selected':''}>Skills & AI Academy</option>
+                                <option value="Tuition" ${state.perfFilterCategory==='Tuition'?'selected':''}>Academic Tuition</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 mb-1.5 uppercase">Select Batch</label>
+                            <select onchange="window.updatePerfBatch(this.value)" class="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none font-bold text-slate-700 transition-all text-sm">
+                                <option value="">-- Choose Batch --</option>${batchOptions}
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 mb-1.5 uppercase">Select Student</label>
+                            <select onchange="window.updatePerfStudent(this.value)" class="w-full p-2.5 bg-blue-50 border border-blue-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none font-bold text-blue-800 transition-all shadow-sm text-sm">
+                                <option value="">-- Select Student --</option>${studentOptions}
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                ${dashboardHTML}
+                ${AddTestModalTemplate()}
+            </div>`;
+        }
+
+        function AddTestModalTemplate() {
+            if (!state.showAddTestModal) return '';
+            return `
+            <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4 animate-fade-in">
+                <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm border border-slate-200 overflow-hidden flex flex-col">
+                    <div class="p-4 border-b border-slate-200 flex justify-between items-center bg-slate-50">
+                        <h3 class="font-bold text-lg text-slate-800">Add Test Score</h3>
+                        <button type="button" onclick="window.closeAddTestModal()" class="text-slate-400 hover:text-slate-600 transition-colors"><i data-lucide="x" class="w-5 h-5"></i></button>
+                    </div>
+                    <form onsubmit="window.saveTestScore(event)" class="p-5 space-y-4">
+                        <div>
+                            <label class="block text-xs font-bold text-slate-600 mb-1">Test Date</label>
+                            <input required type="date" name="date" value="${new Date().toISOString().split('T')[0]}" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium text-slate-800" />
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-600 mb-1">Subject / Topic Name</label>
+                            <input required type="text" name="topic" placeholder="e.g. Algebra Chapter 1" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium text-slate-800" />
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-bold text-slate-600 mb-1">Total Marks</label>
+                                <input required type="number" name="total" placeholder="100" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium text-slate-800" />
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-600 mb-1">Obtained</label>
+                                <input required type="number" step="0.5" name="obtained" placeholder="0" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium text-slate-800" />
+                            </div>
+                        </div>
+                        <div class="flex justify-end space-x-3 pt-4 border-t border-slate-100 mt-6">
+                            <button type="button" onclick="window.closeAddTestModal()" class="px-4 py-2 text-slate-600 font-bold hover:bg-slate-100 rounded-xl text-sm transition-colors">Cancel</button>
+                            <button type="submit" class="px-5 py-2 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 shadow-md text-sm transition-colors">Save Score</button>
+                        </div>
+                    </form>
+                </div>
+            </div>`;
+        }
+
         function WAModalTemplate() {
             if (!state.waModalConfig) return '';
             return `
