@@ -73,7 +73,7 @@
             /* Reset mobile margins for print */
             main { margin-bottom: 0 !important; overflow: visible !important; }
             .a4-wrapper { overflow: visible !important; padding: 0 !important; margin: 0 !important; height: auto !important; }
-            .a4-document { margin: 0 !important; border: none !important; box-shadow: none !important; zoom: 1 !important; transform: none !important; height: 1115px !important; overflow: hidden !important; page-break-inside: avoid !important; }
+            .a4-document { margin: 0 !important; border: none !important; box-shadow: none !important; zoom: 1 !important; transform: none !important; height: 1122px !important; overflow: hidden !important; page-break-inside: avoid !important; }
         }
 
         :root {
@@ -108,8 +108,9 @@
             width: 794px !important; /* Exact A4 width at 96dpi */
             min-width: 794px !important;
             max-width: 794px !important;
-            height: 1115px !important; /* Fixed to prevent blank spillover pages */
-            max-height: 1115px !important;
+            height: 1122px !important; /* Fixed to perfectly match A4 pixel ratio */
+            min-height: 1122px !important; 
+            max-height: 1122px !important;
             background-color: white;
             position: relative;
             box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
@@ -1105,10 +1106,19 @@
                             el.style.top = '0';
                             el.style.left = '0';
                             el.style.margin = '0';
+                            el.style.gap = '0';
+                            
+                            const pages = el.querySelectorAll('.a4-document');
+                            pages.forEach(p => {
+                                p.style.margin = '0';
+                                p.style.marginBottom = '0';
+                                p.style.boxShadow = 'none';
+                                p.style.height = '1122px';
+                            });
                         }
                     }
                 },
-                jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+                jsPDF:        { unit: 'px', format: [794, 1122], orientation: 'portrait', hotfixes: ["px_scaling"] }
             };
 
             setTimeout(() => {
@@ -2221,17 +2231,21 @@
                 </div>
 
                 <!-- A4 Premium Document Wrapper -->
+                <style>
+                    /* Override JS fixed height to allow multi-page PDF generation */
+                    #premium-admission-document { height: auto !important; background: transparent !important; box-shadow: none !important; }
+                </style>
                 <div class="a4-wrapper print:p-0">
                     <div id="premium-admission-document" class="mobile-scale-target flex flex-col print:gap-0 w-[794px]">
                         
                         <!-- Page 1: Admission Form -->
-                        <div class="a4-document bg-white flex flex-col relative print:shadow-none">
+                        <div class="a4-document bg-white flex flex-col relative print:shadow-none mb-6 print:mb-0">
                             
                             <!-- Watermark -->
                             <img src="${state.formLogoUrl}" class="watermark-logo" />
 
                             <!-- 1. HEADER SECTION -->
-                            <div class="flex h-[130px] w-full relative z-10 border-b-[8px] border-[#0A1E4D]">
+                            <div class="flex h-[110px] w-full relative z-10 border-b-[8px] border-[#0A1E4D]">
                                 <!-- Left Branding -->
                                 <div class="w-[65%] bg-white pl-8 pr-4 flex items-center">
                                     <img src="${state.formLogoUrl}" style="width: ${state.formLogoSize || 80}px; height: ${state.formLogoSize || 80}px;" class="object-contain mr-5" />
@@ -2242,9 +2256,9 @@
                                     </div>
                                 </div>
                                 <!-- Right Details -->
-                                <div class="w-[35%] bg-[#0A1E4D] p-6 flex flex-col justify-center border-l-[6px] border-[#F59E0B] relative">
-                                    <h3 class="font-['Montserrat'] font-bold text-[19px] text-white tracking-widest uppercase border-b-2 border-[#1F5FBF] pb-1.5 mb-3 inline-block">Admission Form</h3>
-                                    <div class="flex flex-col space-y-2 text-white/90 text-[10px]">
+                                <div class="w-[35%] bg-[#0A1E4D] p-5 flex flex-col justify-center border-l-[6px] border-[#F59E0B] relative">
+                                    <h3 class="font-['Montserrat'] font-bold text-[18px] text-white tracking-widest uppercase border-b-2 border-[#1F5FBF] pb-1 mb-2 inline-block">Admission Form</h3>
+                                    <div class="flex flex-col space-y-1.5 text-white/90 text-[10px]">
                                         <div class="flex justify-between border-b border-white/20 pb-0.5"><span class="font-medium text-slate-300">Admission Date:</span><span class="font-bold tracking-wide">${new Date(data.date).toLocaleDateString('en-IN')}</span></div>
                                         <div class="flex justify-between border-b border-white/20 pb-0.5"><span class="font-medium text-slate-300">Unique Form ID:</span><span class="font-black text-[#F59E0B] tracking-wider">${data.id}</span></div>
                                     </div>
@@ -2252,71 +2266,71 @@
                             </div>
 
                             <!-- 2. INFO RIBBON CARDS -->
-                            <div class="px-8 py-5 relative z-10">
-                                <div class="flex bg-slate-50 border border-slate-200 rounded-xl p-2.5 shadow-sm justify-between">
+                            <div class="px-8 py-4 relative z-10">
+                                <div class="flex bg-slate-50 border border-slate-200 rounded-xl p-2 shadow-sm justify-between">
                                     <div class="flex items-center px-4 w-1/3 border-r border-slate-200">
-                                        <div class="w-8 h-8 rounded-full bg-[#0A1E4D]/10 flex items-center justify-center text-[#0A1E4D] mr-3"><i data-lucide="user" class="w-4 h-4"></i></div>
-                                        <div class="flex flex-col"><span class="text-[8px] font-extrabold text-slate-400 uppercase tracking-widest mb-0.5">Student ID</span><span class="text-[13px] font-black text-[#0A1E4D] leading-none">${data.id}</span></div>
+                                        <div class="w-7 h-7 rounded-full bg-[#0A1E4D]/10 flex items-center justify-center text-[#0A1E4D] mr-3"><i data-lucide="user" class="w-3.5 h-3.5"></i></div>
+                                        <div class="flex flex-col"><span class="text-[8px] font-extrabold text-slate-400 uppercase tracking-widest mb-0.5">Student ID</span><span class="text-[12px] font-black text-[#0A1E4D] leading-none">${data.id}</span></div>
                                     </div>
                                     <div class="flex items-center px-4 w-1/3 border-r border-slate-200">
-                                        <div class="w-8 h-8 rounded-full bg-[#1F5FBF]/10 flex items-center justify-center text-[#1F5FBF] mr-3"><i data-lucide="calendar" class="w-4 h-4"></i></div>
-                                        <div class="flex flex-col"><span class="text-[8px] font-extrabold text-slate-400 uppercase tracking-widest mb-0.5">Application Date</span><span class="text-[13px] font-bold text-slate-800 leading-none">${new Date(data.date).toLocaleDateString('en-IN')}</span></div>
+                                        <div class="w-7 h-7 rounded-full bg-[#1F5FBF]/10 flex items-center justify-center text-[#1F5FBF] mr-3"><i data-lucide="calendar" class="w-3.5 h-3.5"></i></div>
+                                        <div class="flex flex-col"><span class="text-[8px] font-extrabold text-slate-400 uppercase tracking-widest mb-0.5">Application Date</span><span class="text-[12px] font-bold text-slate-800 leading-none">${new Date(data.date).toLocaleDateString('en-IN')}</span></div>
                                     </div>
                                     <div class="flex items-center px-4 w-1/3">
-                                        <div class="w-8 h-8 rounded-full bg-[#F59E0B]/10 flex items-center justify-center text-[#D97706] mr-3"><i data-lucide="graduation-cap" class="w-4 h-4"></i></div>
-                                        <div class="flex flex-col"><span class="text-[8px] font-extrabold text-slate-400 uppercase tracking-widest mb-0.5">Academic Year</span><span class="text-[13px] font-bold text-slate-800 leading-none">${window.getAcademicYear(data.date)}</span></div>
+                                        <div class="w-7 h-7 rounded-full bg-[#F59E0B]/10 flex items-center justify-center text-[#D97706] mr-3"><i data-lucide="graduation-cap" class="w-3.5 h-3.5"></i></div>
+                                        <div class="flex flex-col"><span class="text-[8px] font-extrabold text-slate-400 uppercase tracking-widest mb-0.5">Academic Year</span><span class="text-[12px] font-bold text-slate-800 leading-none">${window.getAcademicYear(data.date)}</span></div>
                                     </div>
                                 </div>
                             </div>
 
                             <!-- 3. MAIN FORM BODY (Two Columns) -->
-                            <div class="px-8 flex-1 flex gap-8 relative z-10">
+                            <div class="px-8 flex-1 flex gap-6 relative z-10 py-2">
                                 
                                 <!-- LEFT COLUMN -->
-                                <div class="w-[66%] flex flex-col space-y-6">
+                                <div class="w-[66%] flex flex-col space-y-4">
                                     
                                     <!-- Sec 1: Student Information -->
                                     <div>
-                                        <div class="flex items-center border-b-[3px] border-slate-100 pb-2 mb-4">
-                                            <div class="w-6 h-6 bg-[#0A1E4D] rounded flex items-center justify-center text-white text-[11px] font-black mr-3 shadow-sm">1</div>
-                                            <h4 class="font-['Montserrat'] text-[13px] font-bold text-[#0A1E4D] uppercase tracking-wider">Student Information</h4>
+                                        <div class="flex items-center border-b-[2px] border-slate-100 pb-1.5 mb-2.5">
+                                            <div class="w-5 h-5 bg-[#0A1E4D] rounded flex items-center justify-center text-white text-[10px] font-black mr-2.5 shadow-sm">1</div>
+                                            <h4 class="font-['Montserrat'] text-[12px] font-bold text-[#0A1E4D] uppercase tracking-wider">Student Information</h4>
                                         </div>
-                                        <div class="grid grid-cols-2 gap-x-6 gap-y-4 px-2">
+                                        <div class="grid grid-cols-2 gap-x-6 gap-y-2.5 px-2">
                                             <div class="col-span-2 flex flex-col"><span class="pdf-label">Full Name (As per records) <span class="text-red-500">*</span></span><div class="pdf-value uppercase">${data.name}</div></div>
                                             <div class="flex flex-col"><span class="pdf-label">Date of Birth <span class="text-red-500">*</span></span><div class="pdf-value">${data.dob}</div></div>
                                             <div class="grid grid-cols-2 gap-x-4">
-                                            <div class="flex flex-col"><span class="pdf-label">Gender</span><div class="pdf-value">${data.gender}</div></div>
-                                            <div class="flex flex-col"><span class="pdf-label">Blood Grp</span><div class="pdf-value">${data.bloodGroup}</div></div>
+                                                <div class="flex flex-col"><span class="pdf-label">Gender</span><div class="pdf-value">${data.gender}</div></div>
+                                                <div class="flex flex-col"><span class="pdf-label">Blood Grp</span><div class="pdf-value">${data.bloodGroup}</div></div>
+                                            </div>
+                                            <div class="flex flex-col"><span class="pdf-label">Mobile Number <span class="text-red-500">*</span></span><div class="pdf-value"><span class="text-slate-400 mr-1">+91</span>${data.phone}</div></div>
+                                            <div class="flex flex-col"><span class="pdf-label">WhatsApp Number</span><div class="pdf-value"><span class="text-slate-400 mr-1">+91</span>${data.phone}</div></div>
+                                            <div class="col-span-2 flex flex-col"><span class="pdf-label">Email Address</span><div class="pdf-value lowercase">${data.parentEmail !== '-' ? data.parentEmail : ''}</div></div>
                                         </div>
-                                        <div class="flex flex-col"><span class="pdf-label">Mobile Number <span class="text-red-500">*</span></span><div class="pdf-value"><span class="text-slate-400 mr-1">+91</span>${data.phone}</div></div>
-                                        <div class="flex flex-col"><span class="pdf-label">WhatsApp Number</span><div class="pdf-value"><span class="text-slate-400 mr-1">+91</span>${data.phone}</div></div>
-                                        <div class="col-span-2 flex flex-col"><span class="pdf-label">Email Address</span><div class="pdf-value lowercase">${data.parentEmail !== '-' ? data.parentEmail : ''}</div></div>
                                     </div>
-                                </div>
 
-                                <!-- Sec 2: Course Enrollment -->
-                                    <div class="bg-blue-50/50 p-4 rounded-2xl border border-blue-100 relative overflow-hidden">
+                                    <!-- Sec 2: Course Enrollment -->
+                                    <div class="bg-blue-50/50 p-3.5 rounded-xl border border-blue-100 relative overflow-hidden">
                                         <div class="absolute right-0 top-0 w-16 h-16 bg-[#1F5FBF] opacity-5 rounded-bl-full"></div>
-                                        <div class="flex items-center border-b-[3px] border-blue-100 pb-2 mb-4 relative z-10">
-                                            <div class="w-6 h-6 bg-[#1F5FBF] rounded flex items-center justify-center text-white text-[11px] font-black mr-3 shadow-sm">2</div>
-                                            <h4 class="font-['Montserrat'] text-[13px] font-bold text-[#1F5FBF] uppercase tracking-wider">Course Enrollment</h4>
+                                        <div class="flex items-center border-b-[2px] border-blue-100 pb-1.5 mb-2.5 relative z-10">
+                                            <div class="w-5 h-5 bg-[#1F5FBF] rounded flex items-center justify-center text-white text-[10px] font-black mr-2.5 shadow-sm">2</div>
+                                            <h4 class="font-['Montserrat'] text-[12px] font-bold text-[#1F5FBF] uppercase tracking-wider">Course Enrollment</h4>
                                         </div>
-                                        <div class="grid grid-cols-2 gap-x-6 gap-y-4 px-2 relative z-10">
+                                        <div class="grid grid-cols-2 gap-x-6 gap-y-2.5 px-2 relative z-10">
                                             <div class="col-span-2 flex flex-col"><span class="pdf-label text-[#1F5FBF]/70">Selected Course <span class="text-red-500">*</span></span><div class="pdf-value text-[#1F5FBF] border-[#1F5FBF]/30">${programName}</div></div>
                                             <div class="flex flex-col"><span class="pdf-label text-[#1F5FBF]/70">Program Category</span><div class="pdf-value border-[#1F5FBF]/30">${data.type === 'Both' ? 'Tuition + Professional Skills' : (data.type === 'Skill' ? 'Professional & AI Skills' : 'Academic Tuition')}</div></div>
                                             <div class="flex flex-col"><span class="pdf-label text-[#1F5FBF]/70">Duration / Medium</span><div class="pdf-value border-[#1F5FBF]/30">${dur}</div></div>
                                             <div class="col-span-2 flex flex-col"><span class="pdf-label text-[#1F5FBF]/70">Preferred Batch Timing</span><div class="pdf-value border-[#1F5FBF]/30">${data.batchTiming}</div></div>
-                                            ${data.freeOffer && data.freeOffer !== 'None' ? `<div class="col-span-2 flex flex-col mt-2"><span class="pdf-label text-[#F59E0B]">Free Add-on Offer Applied</span><div class="pdf-value text-[#D97706] border-[#F59E0B]/30">${data.freeOffer}</div></div>` : ''}
+                                            ${data.freeOffer && data.freeOffer !== 'None' ? `<div class="col-span-2 flex flex-col mt-1"><span class="pdf-label text-[#F59E0B]">Free Add-on Offer Applied</span><div class="pdf-value text-[#D97706] border-[#F59E0B]/30">${data.freeOffer}</div></div>` : ''}
                                         </div>
                                     </div>
 
                                     <!-- Sec 3: Parent Info -->
                                     <div>
-                                        <div class="flex items-center border-b-[3px] border-slate-100 pb-2 mb-4">
-                                            <div class="w-6 h-6 bg-[#F59E0B] rounded flex items-center justify-center text-white text-[11px] font-black mr-3 shadow-sm">3</div>
-                                            <h4 class="font-['Montserrat'] text-[13px] font-bold text-[#0A1E4D] uppercase tracking-wider">Parent / Guardian Info</h4>
+                                        <div class="flex items-center border-b-[2px] border-slate-100 pb-1.5 mb-2.5">
+                                            <div class="w-5 h-5 bg-[#F59E0B] rounded flex items-center justify-center text-white text-[10px] font-black mr-2.5 shadow-sm">3</div>
+                                            <h4 class="font-['Montserrat'] text-[12px] font-bold text-[#0A1E4D] uppercase tracking-wider">Parent / Guardian Info</h4>
                                         </div>
-                                        <div class="grid grid-cols-2 gap-x-6 gap-y-4 px-2">
+                                        <div class="grid grid-cols-2 gap-x-6 gap-y-2.5 px-2">
                                             <div class="col-span-2 flex flex-col"><span class="pdf-label">Father's / Guardian's Name <span class="text-red-500">*</span></span><div class="pdf-value uppercase">${data.parentName}</div></div>
                                             <div class="flex flex-col"><span class="pdf-label">Parent's Contact Number <span class="text-red-500">*</span></span><div class="pdf-value">${data.parentPhone !== '-' ? `<span class="text-slate-400 mr-1">+91</span>${data.parentPhone}` : ''}</div></div>
                                             <div class="flex flex-col"><span class="pdf-label">Occupation</span><div class="pdf-value">${data.parentOccupation !== '-' ? data.parentOccupation : ''}</div></div>
@@ -2325,11 +2339,11 @@
 
                                     <!-- Sec 4: Address Info -->
                                     <div>
-                                        <div class="flex items-center border-b-[3px] border-slate-100 pb-2 mb-4">
-                                            <div class="w-6 h-6 bg-[#0A1E4D] rounded flex items-center justify-center text-white text-[11px] font-black mr-3 shadow-sm">4</div>
-                                            <h4 class="font-['Montserrat'] text-[13px] font-bold text-[#0A1E4D] uppercase tracking-wider">Address Details</h4>
+                                        <div class="flex items-center border-b-[2px] border-slate-100 pb-1.5 mb-2.5">
+                                            <div class="w-5 h-5 bg-[#0A1E4D] rounded flex items-center justify-center text-white text-[10px] font-black mr-2.5 shadow-sm">4</div>
+                                            <h4 class="font-['Montserrat'] text-[12px] font-bold text-[#0A1E4D] uppercase tracking-wider">Address Details</h4>
                                         </div>
-                                        <div class="grid grid-cols-2 gap-x-6 gap-y-4 px-2">
+                                        <div class="grid grid-cols-2 gap-x-6 gap-y-2.5 px-2">
                                             <div class="col-span-2 flex flex-col"><span class="pdf-label">Residential Address <span class="text-red-500">*</span></span><div class="pdf-value">${data.address !== 'Not Provided' ? data.address : ''}</div></div>
                                             <div class="flex flex-col"><span class="pdf-label">City / District</span><div class="pdf-value">${data.city || ''}</div></div>
                                             <div class="grid grid-cols-2 gap-x-4">
@@ -2341,24 +2355,24 @@
                                 </div>
 
                                 <!-- RIGHT COLUMN -->
-                                <div class="w-[34%] flex flex-col space-y-6">
+                                <div class="w-[34%] flex flex-col space-y-4">
                                     
                                     <!-- Photo Area -->
-                                    <div class="border border-slate-200 bg-slate-50/50 rounded-2xl p-4 flex flex-col items-center justify-center relative shadow-sm h-[200px]">
-                                        <div class="absolute top-0 right-0 bg-[#0A1E4D] text-white text-[8px] font-bold px-3 py-1 rounded-bl-xl rounded-tr-xl uppercase tracking-wider shadow-sm">Student Photo</div>
+                                    <div class="border border-slate-200 bg-slate-50/50 rounded-2xl p-3 flex flex-col items-center justify-center relative shadow-sm h-[180px]">
+                                        <div class="absolute top-0 right-0 bg-[#0A1E4D] text-white text-[7px] font-bold px-3 py-1 rounded-bl-xl rounded-tr-xl uppercase tracking-wider shadow-sm">Student Photo</div>
                                         
-                                        <div class="w-32 h-36 mt-3 relative group">
+                                        <div class="w-28 h-32 mt-3 relative group">
                                             ${!data.photoUrl ? `
-                                            <label class="w-full h-full border-[3px] border-dashed border-slate-300 rounded-xl flex flex-col items-center justify-center bg-white cursor-pointer overflow-hidden hover:border-[#F59E0B] transition-colors">
+                                            <label class="w-full h-full border-[2px] border-dashed border-slate-300 rounded-xl flex flex-col items-center justify-center bg-white cursor-pointer overflow-hidden hover:border-[#F59E0B] transition-colors">
                                                 <input type="file" accept="image/*" onchange="window.handleImageUpload(this, 'photoUrl', '${data.id}')" class="hidden print:hidden" />
-                                                <div class="flex flex-col items-center justify-center h-full text-center p-2"><i data-lucide="user-square" class="w-8 h-8 text-slate-300 mb-1"></i><span class="font-bold text-[10px] text-slate-400 print:hidden leading-tight">Click to Upload<br/>Student Photo</span><span class="text-[8px] text-slate-300 mt-2 font-medium block print:block hidden">Affix Passport<br/>Size Photo</span></div>
+                                                <div class="flex flex-col items-center justify-center h-full text-center p-2"><i data-lucide="user-square" class="w-6 h-6 text-slate-300 mb-1"></i><span class="font-bold text-[9px] text-slate-400 print:hidden leading-tight">Click to Upload<br/>Photo</span><span class="text-[7px] text-slate-300 mt-1 font-medium block print:block hidden">Affix Passport<br/>Size Photo</span></div>
                                             </label>
                                             ` : `
-                                            <div class="w-full h-full border-[3px] border-solid border-slate-200 rounded-xl overflow-hidden relative">
+                                            <div class="w-full h-full border-[2px] border-solid border-slate-200 rounded-xl overflow-hidden relative">
                                                 <img src="${data.photoUrl}" alt="Student" class="w-full h-full object-cover rounded-xl" />
                                                 <div class="absolute inset-0 bg-slate-900/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center space-x-2 print:hidden backdrop-blur-sm">
-                                                    <button type="button" onclick="window.viewAttachment('${data.photoUrl}')" class="p-2 bg-white text-blue-600 rounded-full hover:bg-blue-50 shadow-lg transform hover:scale-110 transition-all" title="View"><i data-lucide="eye" class="w-4 h-4"></i></button>
-                                                    <button type="button" onclick="window.removeAttachment('photoUrl', '${data.id}')" class="p-2 bg-white text-red-600 rounded-full hover:bg-red-50 shadow-lg transform hover:scale-110 transition-all" title="Remove"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                                                    <button type="button" onclick="window.viewAttachment('${data.photoUrl}')" class="p-2 bg-white text-blue-600 rounded-full hover:bg-blue-50 shadow-lg transform hover:scale-110 transition-all" title="View"><i data-lucide="eye" class="w-3 h-3"></i></button>
+                                                    <button type="button" onclick="window.removeAttachment('photoUrl', '${data.id}')" class="p-2 bg-white text-red-600 rounded-full hover:bg-red-50 shadow-lg transform hover:scale-110 transition-all" title="Remove"><i data-lucide="trash-2" class="w-3 h-3"></i></button>
                                                 </div>
                                             </div>
                                             `}
@@ -2367,33 +2381,95 @@
 
                                     <!-- Documents Upload list -->
                                     <div>
-                                        <div class="flex items-center border-b-[3px] border-slate-100 pb-2 mb-4">
-                                            <div class="w-6 h-6 bg-[#F59E0B] rounded flex items-center justify-center text-white text-[11px] font-black mr-3 shadow-sm">5</div>
-                                            <h4 class="font-['Montserrat'] text-[13px] font-bold text-[#0A1E4D] uppercase tracking-wider">Documents Required</h4>
+                                        <div class="flex items-center border-b-[2px] border-slate-100 pb-1.5 mb-2.5">
+                                            <div class="w-5 h-5 bg-[#F59E0B] rounded flex items-center justify-center text-white text-[10px] font-black mr-2.5 shadow-sm">5</div>
+                                            <h4 class="font-['Montserrat'] text-[12px] font-bold text-[#0A1E4D] uppercase tracking-wider">Documents Required</h4>
                                         </div>
-                                        <div class="space-y-2.5 px-2">
+                                        <div class="space-y-2 px-2">
                                             ${renderDocItem('docAadhaar', 'Aadhaar Card Copy')}
                                             ${renderDocItem('docMarksheet', 'Previous Marksheet')}
                                             ${renderDocItem('docLeavingCert', 'School Leaving Cert.')}
                                         </div>
                                     </div>
+                                    
+                                    <!-- Verification Box -->
+                                    <div class="mt-auto bg-slate-100/80 border border-slate-200 rounded-xl p-3 relative shadow-sm">
+                                        <div class="absolute top-0 right-0 bg-[#0A1E4D] text-white text-[6px] font-bold px-2 py-0.5 rounded-bl-lg rounded-tr-lg uppercase tracking-widest shadow-sm">Terms & Verify</div>
+                                        <div class="flex items-start mt-2">
+                                            <div class="w-2.5 h-2.5 bg-[#0A1E4D] rounded-sm flex items-center justify-center mr-2 mt-0.5 flex-shrink-0"><i data-lucide="check" class="w-2 h-2 text-white"></i></div>
+                                            <p class="text-[7px] font-medium text-slate-600 leading-snug text-justify">
+                                                I hereby declare that the information provided above is true and correct to the best of my knowledge. I agree to abide by the rules and regulations of Udaan Vibrant Academy. I understand that a minimum of 75% attendance is mandatory. Fees are non-refundable.
+                                            </p>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
 
-                            <div class="h-[52px] bg-[#0A1E4D] w-full flex items-center justify-between px-10 relative z-10 text-white mt-auto flex-shrink-0">
-                                <div class="flex space-x-8 text-[10px] font-semibold tracking-wide">
-                                    <div class="flex items-center"><i data-lucide="globe" class="w-3.5 h-3.5 text-[#F59E0B] mr-2"></i> www.uvainfo.in</div>
-                                    <div class="flex items-center"><i data-lucide="phone" class="w-3.5 h-3.5 text-[#F59E0B] mr-2"></i> +91 94080 97177</div>
-                                    <div class="flex items-center"><i data-lucide="mail" class="w-3.5 h-3.5 text-[#F59E0B] mr-2"></i> uvainfo7@gmail.com</div>
+                            <!-- 4. SIGNATURES (Spans Full Width Bottom) -->
+                            <div class="px-10 pb-4 relative z-10 mt-auto flex justify-between items-end">
+                                
+                                <div class="text-center group w-44 relative">
+                                    <label class="flex flex-col items-center cursor-pointer">
+                                        <input type="file" accept="image/*" onchange="window.handleImageUpload(this, 'studentSignUrl', '${data.id}')" class="hidden print:hidden" />
+                                        <div class="w-full border-b-[2px] border-slate-400 h-12 flex items-end justify-center pb-1 transition-colors group-hover:border-[#F59E0B]">
+                                            ${data.studentSignUrl ? `<img src="${data.studentSignUrl}" class="max-h-10 object-contain" />` : `<span class="text-[8px] text-slate-300 print:hidden font-bold tracking-wider">Click to Sign</span>`}
+                                        </div>
+                                        <p class="text-[9px] font-extrabold text-[#0A1E4D] mt-1.5 uppercase tracking-widest">Student's Signature</p>
+                                    </label>
+                                    ${data.studentSignUrl ? `
+                                        <div class="absolute -top-3 -right-3 flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity print:hidden z-20">
+                                            <button type="button" onclick="window.viewAttachment('${data.studentSignUrl}')" class="p-1.5 bg-white text-blue-600 rounded-full shadow border hover:bg-blue-50"><i data-lucide="eye" class="w-3 h-3"></i></button>
+                                            <button type="button" onclick="window.removeAttachment('studentSignUrl', '${data.id}')" class="p-1.5 bg-white text-red-600 rounded-full shadow border hover:bg-red-50"><i data-lucide="trash-2" class="w-3 h-3"></i></button>
+                                        </div>
+                                    ` : ''}
                                 </div>
-                                <div class="bg-white p-1 rounded-sm shadow-sm flex items-center justify-center">
-                                    <svg class="w-7 h-7 text-[#0A1E4D]" viewBox="0 0 24 24" fill="currentColor"><path d="M3 3h8v8H3V3zm2 2v4h4V5H5zm8-2h8v8h-8V3zm2 2v4h4V5h-4zM3 13h8v8H3v-8zm2 2v4h4v-4H5zm13-2h-2v2h2v-2zm-2 2h-2v2h2v-2zm2 2h-2v2h2v-2zm-2 2h-2v2h2v-2zm2 0h2v2h-2v-2zm-6-6h2v2h-2v-2z"/></svg>
+                                
+                                <div class="text-center group w-44 relative">
+                                    <label class="flex flex-col items-center cursor-pointer">
+                                        <input type="file" accept="image/*" onchange="window.handleImageUpload(this, 'parentSignUrl', '${data.id}')" class="hidden print:hidden" />
+                                        <div class="w-full border-b-[2px] border-slate-400 h-12 flex items-end justify-center pb-1 transition-colors group-hover:border-[#F59E0B]">
+                                            ${data.parentSignUrl ? `<img src="${data.parentSignUrl}" class="max-h-10 object-contain" />` : `<span class="text-[8px] text-slate-300 print:hidden font-bold tracking-wider">Click to Sign</span>`}
+                                        </div>
+                                        <p class="text-[9px] font-extrabold text-[#0A1E4D] mt-1.5 uppercase tracking-widest">Parent's Signature</p>
+                                    </label>
+                                    ${data.parentSignUrl ? `
+                                        <div class="absolute -top-3 -right-3 flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity print:hidden z-20">
+                                            <button type="button" onclick="window.viewAttachment('${data.parentSignUrl}')" class="p-1.5 bg-white text-blue-600 rounded-full shadow border hover:bg-blue-50"><i data-lucide="eye" class="w-3 h-3"></i></button>
+                                            <button type="button" onclick="window.removeAttachment('parentSignUrl', '${data.id}')" class="p-1.5 bg-white text-red-600 rounded-full shadow border hover:bg-red-50"><i data-lucide="trash-2" class="w-3 h-3"></i></button>
+                                        </div>
+                                    ` : ''}
+                                </div>
+                                
+                                <div class="text-center group w-44 relative">
+                                    <label class="flex flex-col items-center cursor-pointer">
+                                        <input type="file" accept="image/*" onchange="window.handleImageUpload(this, 'adminSignUrl')" class="hidden print:hidden" />
+                                        <div class="w-full border-b-[2px] border-[#0A1E4D] h-12 flex items-end justify-center pb-1 transition-colors group-hover:border-[#F59E0B]">
+                                            ${state.adminSignUrl ? `<img src="${state.adminSignUrl}" class="max-h-10 object-contain" />` : `<span class="text-[8px] text-slate-300 print:hidden font-bold tracking-wider">Click to Sign</span>`}
+                                        </div>
+                                        <p class="text-[9px] font-extrabold text-[#0A1E4D] mt-1.5 uppercase tracking-widest">Authorized Signatory</p>
+                                    </label>
+                                    ${state.adminSignUrl ? `
+                                        <div class="absolute -top-3 -right-3 flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity print:hidden z-20">
+                                            <button type="button" onclick="window.viewAttachment('${state.adminSignUrl}')" class="p-1.5 bg-white text-blue-600 rounded-full shadow border hover:bg-blue-50"><i data-lucide="eye" class="w-3 h-3"></i></button>
+                                            <button type="button" onclick="window.removeAttachment('adminSignUrl')" class="p-1.5 bg-white text-red-600 rounded-full shadow border hover:bg-red-50"><i data-lucide="trash-2" class="w-3 h-3"></i></button>
+                                        </div>
+                                    ` : ''}
+                                </div>
+                                
+                            </div>
+
+                            <!-- 5. FOOTER -->
+                            <div class="h-[44px] bg-[#0A1E4D] w-full flex items-center justify-between px-10 relative z-10 text-white mt-auto flex-shrink-0">
+                                <div class="flex space-x-8 text-[9px] font-semibold tracking-wide">
+                                    <div class="flex items-center"><i data-lucide="globe" class="w-3 h-3 text-[#F59E0B] mr-2"></i> www.uvainfo.in</div>
+                                    <div class="flex items-center"><i data-lucide="phone" class="w-3 h-3 text-[#F59E0B] mr-2"></i> +91 94080 97177</div>
+                                    <div class="flex items-center"><i data-lucide="mail" class="w-3 h-3 text-[#F59E0B] mr-2"></i> uvainfo7@gmail.com</div>
+                                </div>
+                                <div class="bg-white p-0.5 rounded-sm shadow-sm flex items-center justify-center">
+                                    <svg class="w-5 h-5 text-[#0A1E4D]" viewBox="0 0 24 24" fill="currentColor"><path d="M3 3h8v8H3V3zm2 2v4h4V5H5zm8-2h8v8h-8V3zm2 2v4h4V5h-4zM3 13h8v8H3v-8zm2 2v4h4v-4H5zm13-2h-2v2h2v-2zm-2 2h-2v2h2v-2zm2 2h-2v2h2v-2zm-2 2h-2v2h2v-2zm2 0h2v2h-2v-2zm-6-6h2v2h-2v-2z"/></svg>
                                 </div>
                             </div>
                         </div>
-
-                        <!-- PAGE BREAK FOR T&C -->
-                        <div class="html2pdf__page-break" style="margin: 0; padding: 0; height: 0;"></div>
 
                         <!-- Page 2: Terms & Conditions -->
                         <div class="a4-document bg-white flex flex-col relative print:shadow-none">
@@ -2403,8 +2479,8 @@
                                 <h2 class="font-['Montserrat'] font-black text-2xl text-[#0A1E4D] uppercase tracking-widest">Terms & Conditions</h2>
                             </div>
 
-                            <div class="px-10 py-8 relative z-10 flex-1 flex flex-col">
-                                <ol class="list-decimal pl-5 space-y-2.5 text-[11px] text-slate-800 text-justify leading-relaxed font-semibold">
+                            <div class="px-10 py-6 relative z-10 flex-1 flex flex-col">
+                                <ol class="list-decimal pl-5 space-y-2 text-[11px] text-slate-800 text-justify leading-relaxed font-semibold">
                                     <li>Admission is confirmed only after successful submission of the admission form and payment of applicable fees.</li>
                                     <li>All fees paid to the academy, including Admission Fees, Registration Fees, Course Fees, Tuition Fees, Material Fees, and Examination Fees, are strictly NON-REFUNDABLE under any circumstances.</li>
                                     <li>Fees once paid are NON-TRANSFERABLE, NON-ADJUSTABLE, NON-REPLACEABLE, and cannot be converted into another course, batch, service, or student account.</li>
@@ -2423,7 +2499,7 @@
                                     <li>The decision of Udaan Vibrant Academy management shall be final and binding in all matters relating to admissions, fees, attendance, discipline, certification, and administration.</li>
                                 </ol>
 
-                                <div class="mt-6 border-t-[3px] border-slate-100 pt-6">
+                                <div class="mt-4 border-t-[3px] border-slate-100 pt-6">
                                     <h3 class="font-['Montserrat'] font-bold text-base text-[#0A1E4D] mb-3 uppercase tracking-wider">Declaration</h3>
                                     <p class="text-[11px] font-bold text-slate-700 leading-relaxed text-justify italic mb-4">
                                         I hereby declare that all information provided by me is true and correct. I have carefully read, understood, and accepted all Terms & Conditions of Udaan Vibrant Academy and agree to abide by all academy rules and policies.
@@ -2434,7 +2510,7 @@
                                     </div>
                                 </div>
 
-                                <div class="mt-auto flex justify-between items-end pb-8 pt-10">
+                                <div class="mt-auto flex justify-between items-end pb-8 pt-6">
                                     <div class="text-center group relative w-48 flex flex-col items-center">
                                         <div class="w-full border-b-[2px] border-slate-400 h-14 flex items-end justify-center pb-1">
                                             ${data.studentSignUrl ? `<img src="${data.studentSignUrl}" class="max-h-12 object-contain" />` : ``}
@@ -2456,14 +2532,14 @@
                                 </div>
                             </div>
                             
-                            <div class="h-[52px] bg-[#0A1E4D] w-full flex items-center justify-between px-10 relative z-10 text-white mt-auto flex-shrink-0">
-                                <div class="flex space-x-8 text-[10px] font-semibold tracking-wide">
-                                    <div class="flex items-center"><i data-lucide="globe" class="w-3.5 h-3.5 text-[#F59E0B] mr-2"></i> www.uvainfo.in</div>
-                                    <div class="flex items-center"><i data-lucide="phone" class="w-3.5 h-3.5 text-[#F59E0B] mr-2"></i> +91 94080 97177</div>
-                                    <div class="flex items-center"><i data-lucide="mail" class="w-3.5 h-3.5 text-[#F59E0B] mr-2"></i> uvainfo7@gmail.com</div>
+                            <div class="h-[44px] bg-[#0A1E4D] w-full flex items-center justify-between px-10 relative z-10 text-white mt-auto flex-shrink-0">
+                                <div class="flex space-x-8 text-[9px] font-semibold tracking-wide">
+                                    <div class="flex items-center"><i data-lucide="globe" class="w-3 h-3 text-[#F59E0B] mr-2"></i> www.uvainfo.in</div>
+                                    <div class="flex items-center"><i data-lucide="phone" class="w-3 h-3 text-[#F59E0B] mr-2"></i> +91 94080 97177</div>
+                                    <div class="flex items-center"><i data-lucide="mail" class="w-3 h-3 text-[#F59E0B] mr-2"></i> uvainfo7@gmail.com</div>
                                 </div>
-                                <div class="bg-white p-1 rounded-sm shadow-sm flex items-center justify-center">
-                                    <svg class="w-7 h-7 text-[#0A1E4D]" viewBox="0 0 24 24" fill="currentColor"><path d="M3 3h8v8H3V3zm2 2v4h4V5H5zm8-2h8v8h-8V3zm2 2v4h4V5h-4zM3 13h8v8H3v-8zm2 2v4h4v-4H5zm13-2h-2v2h2v-2zm-2 2h-2v2h2v-2zm2 2h-2v2h2v-2zm-2 2h-2v2h2v-2zm2 0h2v2h-2v-2zm-6-6h2v2h-2v-2z"/></svg>
+                                <div class="bg-white p-0.5 rounded-sm shadow-sm flex items-center justify-center">
+                                    <svg class="w-5 h-5 text-[#0A1E4D]" viewBox="0 0 24 24" fill="currentColor"><path d="M3 3h8v8H3V3zm2 2v4h4V5H5zm8-2h8v8h-8V3zm2 2v4h4V5h-4zM3 13h8v8H3v-8zm2 2v4h4v-4H5zm13-2h-2v2h2v-2zm-2 2h-2v2h2v-2zm2 2h-2v2h2v-2zm-2 2h-2v2h2v-2zm2 0h2v2h-2v-2zm-6-6h2v2h-2v-2z"/></svg>
                                 </div>
                             </div>
                         </div>
