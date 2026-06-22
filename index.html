@@ -881,6 +881,28 @@
             }
         };
 
+        window.toggleHomework = (id, status) => {
+            const attKey = `${id}_${state.attSelectedBatch}`;
+            if (!state.attState[state.attDate]) state.attState[state.attDate] = {};
+            if (!state.attState[state.attDate][attKey]) state.attState[state.attDate][attKey] = { status: null, reason: '', hwStatus: null, hwReason: '' };
+            
+            if (state.attState[state.attDate][attKey].hwStatus === status) {
+                state.attState[state.attDate][attKey].hwStatus = null;
+            } else {
+                state.attState[state.attDate][attKey].hwStatus = status;
+            }
+            render();
+        };
+
+        window.updateHwReason = (id, val) => {
+            const attKey = `${id}_${state.attSelectedBatch}`;
+            if (state.attState[state.attDate] && state.attState[state.attDate][attKey]) {
+                state.attState[state.attDate][attKey].hwReason = val;
+            } else if (state.attState[state.attDate] && state.attState[state.attDate][id]) {
+                state.attState[state.attDate][id].hwReason = val;
+            }
+        };
+
         window.clearAttendance = () => {
             if (confirm("Are you sure you want to clear all attendance for this batch on the selected date?")) {
                 const currentStudents = getFilteredStudents();
@@ -2024,143 +2046,6 @@
             </div>`;
         }
 
-        // --- ATTENDANCE TEMPLATE ---
-        function AttendanceTemplate() {
-            const batches = getBatches();
-            const filteredStudents = getFilteredStudents();
-
-            let batchOptions = batches.map(b => `<option value="${b}" ${state.attSelectedBatch===b?'selected':''}>${b}</option>`).join('');
-            
-            let displayHTML = '';
-            if (state.attSelectedBatch) {
-                const dateData = state.attState[state.attDate] || {};
-                let presentCount = 0;
-                let absentCount = 0;
-
-                let stdRows = filteredStudents.map(std => {
-                    const attKey = `${std.id}_${state.attSelectedBatch}`;
-                    const currentStatus = dateData[attKey]?.status || dateData[std.id]?.status || null; // Unmarked default
-                    const currentReason = dateData[attKey]?.reason || dateData[std.id]?.reason || '';
-                    
-                    if (currentStatus === 'Present') presentCount++;
-                    if (currentStatus === 'Absent') absentCount++;
-                    
-                    let reasonHTML = '';
-                    if (currentStatus === 'Absent') {
-                        reasonHTML = `
-                        <div class="w-full sm:w-56 transition-all mt-2 sm:mt-0">
-                            <select onchange="window.updateAttReason('${std.id}', this.value)" class="w-full text-sm border-slate-300 rounded-xl p-2.5 sm:p-3 bg-white text-slate-700 shadow-sm focus:ring-2 focus:ring-red-500 border outline-none font-bold">
-                                <option value="">Select Reason...</option>
-                                <option value="Sick/Health Issue" ${currentReason==='Sick/Health Issue'?'selected':''}>Sick / Health Issue</option>
-                                <option value="Family Emergency" ${currentReason==='Family Emergency'?'selected':''}>Family Emergency</option>
-                                <option value="Travel/Out of Town" ${currentReason==='Travel/Out of Town'?'selected':''}>Travel / Out of Town</option>
-                                <option value="Uninformed" ${currentReason==='Uninformed'?'selected':''}>Uninformed</option>
-                                <option value="Other" ${currentReason==='Other'?'selected':''}>Other</option>
-                            </select>
-                        </div>`;
-                    }
-
-                    return `
-                    <div class="p-4 flex flex-col xl:flex-row xl:justify-between xl:items-center hover:bg-slate-50 rounded-xl transition-colors gap-3 md:gap-4 border-b border-slate-100 last:border-0">
-                        <div class="flex items-center space-x-3 md:space-x-4">
-                            <div class="w-10 h-10 md:w-12 md:h-12 bg-slate-200 rounded-full flex items-center justify-center text-slate-600 font-extrabold text-lg md:text-xl shadow-inner border border-slate-300 flex-shrink-0">${std.name.charAt(0)}</div>
-                            <div class="truncate">
-                                <p class="font-extrabold text-slate-800 text-base md:text-lg truncate">${std.name}</p>
-                                <div class="flex items-center mt-0.5 space-x-3">
-                                    <p class="text-xs md:text-sm font-mono text-slate-500 font-bold">ID: ${std.id}</p>
-                                    <button onclick="window.openIndividualReport('${std.id}')" class="text-[10px] md:text-xs text-blue-600 hover:text-blue-800 font-bold flex items-center bg-blue-50 px-2 py-0.5 rounded border border-blue-200 transition-colors">
-                                        <i data-lucide="calendar-days" class="w-3 h-3 mr-1"></i> Individual Report
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="flex flex-col sm:flex-row items-end sm:items-center gap-2 md:gap-3 w-full xl:w-auto mt-2 xl:mt-0">
-                            <div class="flex bg-slate-100 p-1.5 rounded-xl border border-slate-200 shadow-sm w-full sm:w-auto">
-                                <button onclick="window.toggleAttendance('${std.id}', 'Present')" class="flex-1 sm:flex-none px-4 md:px-8 py-2 md:py-2.5 rounded-lg font-bold transition-all text-xs md:text-sm ${currentStatus === 'Present' ? 'bg-green-500 text-white shadow-md' : 'text-slate-500 hover:text-green-600 hover:bg-green-50'}">Present</button>
-                                <button onclick="window.toggleAttendance('${std.id}', 'Absent')" class="flex-1 sm:flex-none px-4 md:px-8 py-2 md:py-2.5 rounded-lg font-bold transition-all text-xs md:text-sm ${currentStatus === 'Absent' ? 'bg-red-500 text-white shadow-md' : 'text-slate-500 hover:text-red-600 hover:bg-red-50'}">Absent</button>
-                            </div>
-                            ${reasonHTML}
-                        </div>
-                    </div>`;
-                }).join('');
-
-                if(filteredStudents.length === 0) stdRows = `<div class="p-8 text-center text-slate-500 font-medium text-sm md:text-base">No students found in this batch based on your filters.</div>`;
-
-                displayHTML = `
-                <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden animate-fade-in w-full overflow-x-auto">
-                    <div class="p-4 md:p-6 bg-slate-900 flex flex-col sm:flex-row sm:justify-between sm:items-center text-white gap-4">
-                        <div>
-                            <h3 class="font-bold text-lg md:text-xl text-orange-400">${state.attSelectedBatch}</h3>
-                            <p class="text-slate-300 text-xs md:text-sm font-medium mt-1">Total: ${filteredStudents.length} | Marked Present: <span class="text-green-400">${presentCount}</span> | Marked Absent: <span class="text-red-400">${absentCount}</span></p>
-                        </div>
-                        <div class="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-3 w-full sm:w-auto">
-                            <button onclick="window.openAttendanceReport()" class="w-full sm:w-auto bg-slate-700 text-white border border-slate-600 px-4 py-2.5 rounded-xl text-sm font-bold hover:bg-slate-600 flex items-center justify-center transition-colors shadow-sm">
-                                <i data-lucide="file-text" class="w-4 h-4 mr-2"></i> Batch Report
-                            </button>
-                            <button onclick="window.notifyAbsentees()" class="w-full sm:w-auto bg-orange-500 text-white px-4 py-2.5 rounded-xl text-sm font-bold hover:bg-orange-600 flex items-center justify-center transition-colors shadow-sm">
-                                <i data-lucide="message-circle" class="w-4 h-4 mr-2"></i> Notify Absentees
-                            </button>
-                        </div>
-                    </div>
-                    <div class="p-2 md:p-4 min-w-[600px]">${stdRows}</div>
-                    <div class="p-4 md:p-5 bg-slate-50 border-t flex flex-col sm:flex-row justify-between items-center gap-4">
-                        <button onclick="window.clearAttendance()" class="w-full sm:w-auto px-4 py-3 md:py-3 bg-red-50 text-red-600 font-bold rounded-xl hover:bg-red-100 transition-colors text-sm md:text-base flex items-center justify-center">
-                            <i data-lucide="eraser" class="w-4 h-4 md:w-5 md:h-5 mr-1 md:mr-2"></i> <span class="hidden sm:inline">Clear Day</span><span class="sm:hidden">Clear</span>
-                        </button>
-                        <button onclick="window.saveDataToCloud(); alert('Attendance Saved Successfully!')" class="w-full sm:w-auto px-6 py-3 md:py-3 bg-slate-900 text-white font-bold rounded-xl hover:bg-slate-800 shadow-lg flex items-center justify-center transition-colors text-sm md:text-base">
-                            <i data-lucide="check-square" class="w-4 h-4 md:w-5 md:h-5 mr-2"></i> Save Record
-                        </button>
-                    </div>
-                </div>`;
-            } else {
-                displayHTML = `
-                <div class="flex items-center justify-center h-48 md:h-64 border-2 border-dashed border-slate-300 rounded-2xl bg-white p-4">
-                    <div class="text-center">
-                        <i data-lucide="search" class="mx-auto text-slate-300 mb-3 w-8 h-8 md:w-10 md:h-10"></i>
-                        <p class="text-slate-500 font-bold text-base md:text-lg">Select a Batch</p>
-                        <p class="text-slate-400 text-xs md:text-sm mt-1">Use the filters above to load the student list.</p>
-                    </div>
-                </div>`;
-            }
-
-            return `
-            <div class="p-4 sm:p-6 md:p-8 bg-slate-50 min-h-full animate-fade-in w-full overflow-hidden">
-                <div class="mb-6 md:mb-8">
-                    <h2 class="text-2xl md:text-3xl font-extrabold text-slate-900 tracking-tight">Attendance</h2>
-                    <p class="text-sm md:text-base text-slate-500 font-medium mt-1">Track batch presence and generate monthly reports.</p>
-                </div>
-                
-                <div class="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-slate-200 mb-6 md:mb-8">
-                    <h3 class="text-sm font-bold text-slate-800 mb-4 border-b pb-2 uppercase tracking-wider">Attendance Filters</h3>
-                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
-                        <div>
-                            <label class="block text-xs font-bold text-slate-500 mb-1.5 uppercase">Program Type</label>
-                            <select onchange="window.updateAttFilter(this.value)" class="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none font-bold text-slate-700 transition-all text-sm">
-                                <option value="All" ${state.attFilterCategory==='All'?'selected':''}>All Programs</option>
-                                <option value="Skill" ${state.attFilterCategory==='Skill'?'selected':''}>Skills & AI Academy</option>
-                                <option value="Tuition" ${state.attFilterCategory==='Tuition'?'selected':''}>Academic Tuition</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label class="block text-xs font-bold text-slate-500 mb-1.5 uppercase">Select Batch</label>
-                            <select onchange="window.updateAttBatch(this.value)" class="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none font-bold text-slate-700 transition-all text-sm">
-                                <option value="">-- Choose Batch --</option>${batchOptions}
-                            </select>
-                        </div>
-                        <div>
-                            <label class="block text-xs font-bold text-slate-500 mb-1.5 uppercase">Date (View/Mark)</label>
-                            <input type="date" value="${state.attDate}" onchange="window.updateAttDate(this.value)" class="w-full p-2.5 bg-orange-50 border border-orange-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none font-bold text-orange-700 transition-all shadow-sm text-sm" />
-                        </div>
-                        <div>
-                            <label class="block text-xs font-bold text-slate-500 mb-1.5 uppercase">Report Month</label>
-                            <input type="month" value="${state.attReportMonth}" onchange="window.updateAttMonth(this.value)" class="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none font-bold text-slate-700 transition-all text-sm" />
-                        </div>
-                    </div>
-                </div>
-                ${displayHTML}
-            </div>`;
-        }
-
         // --- RECEIPT TEMPLATE (Printable) ---
         function ReceiptViewTemplate() {
             const data = state.receiptData;
@@ -2223,6 +2108,9 @@
                         </label>
                         <button onclick="window.shareFormWhatsApp()" class="px-4 py-2.5 bg-green-500 text-white rounded-xl hover:bg-green-600 font-bold flex items-center justify-center shadow-md transition-colors whitespace-nowrap">
                             <i data-lucide="message-circle" class="w-4 h-4 mr-2"></i> WA Share
+                        </button>
+                        <button onclick="window.print()" class="px-4 py-2.5 bg-white text-slate-700 border border-slate-300 rounded-xl hover:bg-slate-50 font-bold flex items-center justify-center shadow-sm transition-colors whitespace-nowrap">
+                            <i data-lucide="printer" class="w-4 h-4 mr-2 text-slate-500"></i> Print
                         </button>
                         <button id="pdf-download-btn" onclick="window.generatePremiumPDF()" class="px-5 py-2.5 bg-[#0A1E4D] text-white rounded-xl hover:bg-slate-800 font-bold flex items-center justify-center shadow-lg transition-colors whitespace-nowrap">
                             <i data-lucide="download" class="w-4 h-4 mr-2 text-[#F59E0B]"></i> <span>Download Premium PDF</span>
@@ -2549,6 +2437,172 @@
             </div>`;
         }
 
+        // --- ATTENDANCE TEMPLATE ---
+        function AttendanceTemplate() {
+            const batches = getBatches();
+            const filteredStudents = getFilteredStudents();
+
+            let batchOptions = batches.map(b => `<option value="${b}" ${state.attSelectedBatch===b?'selected':''}>${b}</option>`).join('');
+            
+            let displayHTML = '';
+            if (state.attSelectedBatch) {
+                const dateData = state.attState[state.attDate] || {};
+                let presentCount = 0;
+                let absentCount = 0;
+
+                let stdRows = filteredStudents.map(std => {
+                    const attKey = `${std.id}_${state.attSelectedBatch}`;
+                    const currentStatus = dateData[attKey]?.status || dateData[std.id]?.status || null; // Unmarked default
+                    const currentReason = dateData[attKey]?.reason || dateData[std.id]?.reason || '';
+                    
+                    if (currentStatus === 'Present') presentCount++;
+                    if (currentStatus === 'Absent') absentCount++;
+                    
+                    let reasonHTML = '';
+                    if (currentStatus === 'Absent') {
+                        reasonHTML = `
+                        <div class="w-full sm:w-48 transition-all mt-2 sm:mt-0">
+                            <select onchange="window.updateAttReason('${std.id}', this.value)" class="w-full text-xs border-slate-300 rounded-xl p-2 md:p-2.5 bg-white text-slate-700 shadow-sm focus:ring-2 focus:ring-red-500 border outline-none font-bold">
+                                <option value="">Select Reason...</option>
+                                <option value="Sick/Health Issue" ${currentReason==='Sick/Health Issue'?'selected':''}>Sick / Health Issue</option>
+                                <option value="Family Emergency" ${currentReason==='Family Emergency'?'selected':''}>Family Emergency</option>
+                                <option value="Travel/Out of Town" ${currentReason==='Travel/Out of Town'?'selected':''}>Travel / Out of Town</option>
+                                <option value="Uninformed" ${currentReason==='Uninformed'?'selected':''}>Uninformed</option>
+                                <option value="Other" ${currentReason==='Other'?'selected':''}>Other</option>
+                            </select>
+                        </div>`;
+                    }
+
+                    const currentHwStatus = dateData[attKey]?.hwStatus || dateData[std.id]?.hwStatus || null;
+                    const currentHwReason = dateData[attKey]?.hwReason || dateData[std.id]?.hwReason || '';
+                    
+                    let hwReasonHTML = '';
+                    if (currentHwStatus === 'Not Done') {
+                        hwReasonHTML = `
+                        <div class="w-full sm:w-48 transition-all mt-2 sm:mt-0">
+                            <select onchange="window.updateHwReason('${std.id}', this.value)" class="w-full text-xs border-slate-300 rounded-xl p-2 md:p-2.5 bg-white text-slate-700 shadow-sm focus:ring-2 focus:ring-orange-500 border outline-none font-bold">
+                                <option value="">Select Reason...</option>
+                                <option value="Forgot at Home" ${currentHwReason==='Forgot at Home'?'selected':''}>Forgot at Home</option>
+                                <option value="Incomplete" ${currentHwReason==='Incomplete'?'selected':''}>Incomplete</option>
+                                <option value="Didn't Understand" ${currentHwReason==="Didn't Understand"?'selected':''}>Didn't Understand</option>
+                                <option value="Absent Yesterday" ${currentHwReason==='Absent Yesterday'?'selected':''}>Absent Yesterday</option>
+                                <option value="Other" ${currentHwReason==='Other'?'selected':''}>Other</option>
+                            </select>
+                        </div>`;
+                    }
+
+                    return `
+                    <div class="p-4 flex flex-col xl:flex-row xl:justify-between xl:items-center hover:bg-slate-50 rounded-xl transition-colors gap-3 md:gap-4 border-b border-slate-100 last:border-0">
+                        <div class="flex items-center space-x-3 md:space-x-4">
+                            <div class="w-10 h-10 md:w-12 md:h-12 bg-slate-200 rounded-full flex items-center justify-center text-slate-600 font-extrabold text-lg md:text-xl shadow-inner border border-slate-300 flex-shrink-0">${std.name.charAt(0)}</div>
+                            <div class="truncate">
+                                <p class="font-extrabold text-slate-800 text-base md:text-lg truncate">${std.name}</p>
+                                <div class="flex items-center mt-0.5 space-x-3">
+                                    <p class="text-xs md:text-sm font-mono text-slate-500 font-bold">ID: ${std.id}</p>
+                                    <button onclick="window.openIndividualReport('${std.id}')" class="text-[10px] md:text-xs text-blue-600 hover:text-blue-800 font-bold flex items-center bg-blue-50 px-2 py-0.5 rounded border border-blue-200 transition-colors">
+                                        <i data-lucide="calendar-days" class="w-3 h-3 mr-1"></i> Individual Report
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="flex flex-col lg:flex-row items-start lg:items-center gap-3 w-full xl:w-auto mt-2 xl:mt-0">
+                            <!-- Attendance Block -->
+                            <div class="flex flex-col sm:flex-row items-end sm:items-center gap-2 w-full lg:w-auto lg:border-r lg:border-slate-200 lg:pr-3">
+                                <div class="flex bg-slate-100 p-1.5 rounded-xl border border-slate-200 shadow-sm w-full sm:w-auto">
+                                    <button onclick="window.toggleAttendance('${std.id}', 'Present')" class="flex-1 sm:flex-none px-4 md:px-6 py-2 md:py-2 rounded-lg font-bold transition-all text-xs md:text-sm ${currentStatus === 'Present' ? 'bg-green-500 text-white shadow-md' : 'text-slate-500 hover:text-green-600 hover:bg-green-50'}">Present</button>
+                                    <button onclick="window.toggleAttendance('${std.id}', 'Absent')" class="flex-1 sm:flex-none px-4 md:px-6 py-2 md:py-2 rounded-lg font-bold transition-all text-xs md:text-sm ${currentStatus === 'Absent' ? 'bg-red-500 text-white shadow-md' : 'text-slate-500 hover:text-red-600 hover:bg-red-50'}">Absent</button>
+                                </div>
+                                ${reasonHTML}
+                            </div>
+                            <!-- Homework Block -->
+                            <div class="flex flex-col sm:flex-row items-end sm:items-center gap-2 w-full lg:w-auto">
+                                <div class="flex bg-slate-100 p-1.5 rounded-xl border border-slate-200 shadow-sm w-full sm:w-auto">
+                                    <button onclick="window.toggleHomework('${std.id}', 'Done')" class="flex-1 sm:flex-none px-4 md:px-5 py-2 md:py-2 rounded-lg font-bold transition-all text-xs md:text-sm ${currentHwStatus === 'Done' ? 'bg-blue-500 text-white shadow-md' : 'text-slate-500 hover:text-blue-600 hover:bg-blue-50'}">HW Done</button>
+                                    <button onclick="window.toggleHomework('${std.id}', 'Not Done')" class="flex-1 sm:flex-none px-4 md:px-5 py-2 md:py-2 rounded-lg font-bold transition-all text-xs md:text-sm ${currentHwStatus === 'Not Done' ? 'bg-orange-500 text-white shadow-md' : 'text-slate-500 hover:text-orange-600 hover:bg-orange-50'}">Not Done</button>
+                                </div>
+                                ${hwReasonHTML}
+                            </div>
+                        </div>
+                    </div>`;
+                }).join('');
+
+                if(filteredStudents.length === 0) stdRows = `<div class="p-8 text-center text-slate-500 font-medium text-sm md:text-base">No students found in this batch based on your filters.</div>`;
+
+                displayHTML = `
+                <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden animate-fade-in w-full overflow-x-auto">
+                    <div class="p-4 md:p-6 bg-slate-900 flex flex-col sm:flex-row sm:justify-between sm:items-center text-white gap-4">
+                        <div>
+                            <h3 class="font-bold text-lg md:text-xl text-orange-400">${state.attSelectedBatch}</h3>
+                            <p class="text-slate-300 text-xs md:text-sm font-medium mt-1">Total: ${filteredStudents.length} | Marked Present: <span class="text-green-400">${presentCount}</span> | Marked Absent: <span class="text-red-400">${absentCount}</span></p>
+                        </div>
+                        <div class="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-3 w-full sm:w-auto">
+                            <button onclick="window.openAttendanceReport()" class="w-full sm:w-auto bg-slate-700 text-white border border-slate-600 px-4 py-2.5 rounded-xl text-sm font-bold hover:bg-slate-600 flex items-center justify-center transition-colors shadow-sm">
+                                <i data-lucide="file-text" class="w-4 h-4 mr-2"></i> Batch Report
+                            </button>
+                            <button onclick="window.notifyAbsentees()" class="w-full sm:w-auto bg-orange-500 text-white px-4 py-2.5 rounded-xl text-sm font-bold hover:bg-orange-600 flex items-center justify-center transition-colors shadow-sm">
+                                <i data-lucide="message-circle" class="w-4 h-4 mr-2"></i> Notify Absentees
+                            </button>
+                        </div>
+                    </div>
+                    <div class="p-2 md:p-4 min-w-[600px]">${stdRows}</div>
+                    <div class="p-4 md:p-5 bg-slate-50 border-t flex flex-col sm:flex-row justify-between items-center gap-4">
+                        <button onclick="window.clearAttendance()" class="w-full sm:w-auto px-4 py-3 md:py-3 bg-red-50 text-red-600 font-bold rounded-xl hover:bg-red-100 transition-colors text-sm md:text-base flex items-center justify-center">
+                            <i data-lucide="eraser" class="w-4 h-4 md:w-5 md:h-5 mr-1 md:mr-2"></i> <span class="hidden sm:inline">Clear Day</span><span class="sm:hidden">Clear</span>
+                        </button>
+                        <button onclick="window.saveDataToCloud(); alert('Attendance Saved Successfully!')" class="w-full sm:w-auto px-6 py-3 md:py-3 bg-slate-900 text-white font-bold rounded-xl hover:bg-slate-800 shadow-lg flex items-center justify-center transition-colors text-sm md:text-base">
+                            <i data-lucide="check-square" class="w-4 h-4 md:w-5 md:h-5 mr-2"></i> Save Record
+                        </button>
+                    </div>
+                </div>`;
+            } else {
+                displayHTML = `
+                <div class="flex items-center justify-center h-48 md:h-64 border-2 border-dashed border-slate-300 rounded-2xl bg-white p-4">
+                    <div class="text-center">
+                        <i data-lucide="search" class="mx-auto text-slate-300 mb-3 w-8 h-8 md:w-10 md:h-10"></i>
+                        <p class="text-slate-500 font-bold text-base md:text-lg">Select a Batch</p>
+                        <p class="text-slate-400 text-xs md:text-sm mt-1">Use the filters above to load the student list.</p>
+                    </div>
+                </div>`;
+            }
+
+            return `
+            <div class="p-4 sm:p-6 md:p-8 bg-slate-50 min-h-full animate-fade-in w-full overflow-hidden">
+                <div class="mb-6 md:mb-8">
+                    <h2 class="text-2xl md:text-3xl font-extrabold text-slate-900 tracking-tight">Attendance</h2>
+                    <p class="text-sm md:text-base text-slate-500 font-medium mt-1">Track batch presence and generate monthly reports.</p>
+                </div>
+                
+                <div class="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-slate-200 mb-6 md:mb-8">
+                    <h3 class="text-sm font-bold text-slate-800 mb-4 border-b pb-2 uppercase tracking-wider">Attendance Filters</h3>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 mb-1.5 uppercase">Program Type</label>
+                            <select onchange="window.updateAttFilter(this.value)" class="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none font-bold text-slate-700 transition-all text-sm">
+                                <option value="All" ${state.attFilterCategory==='All'?'selected':''}>All Programs</option>
+                                <option value="Skill" ${state.attFilterCategory==='Skill'?'selected':''}>Skills & AI Academy</option>
+                                <option value="Tuition" ${state.attFilterCategory==='Tuition'?'selected':''}>Academic Tuition</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 mb-1.5 uppercase">Select Batch</label>
+                            <select onchange="window.updateAttBatch(this.value)" class="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none font-bold text-slate-700 transition-all text-sm">
+                                <option value="">-- Choose Batch --</option>${batchOptions}
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 mb-1.5 uppercase">Date (View/Mark)</label>
+                            <input type="date" value="${state.attDate}" onchange="window.updateAttDate(this.value)" class="w-full p-2.5 bg-orange-50 border border-orange-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none font-bold text-orange-700 transition-all shadow-sm text-sm" />
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 mb-1.5 uppercase">Report Month</label>
+                            <input type="month" value="${state.attReportMonth}" onchange="window.updateAttMonth(this.value)" class="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none font-bold text-slate-700 transition-all text-sm" />
+                        </div>
+                    </div>
+                </div>
+                ${displayHTML}
+            </div>`;
+        }
+
         // --- ATTENDANCE REPORT TEMPLATE (Printable) ---
         function AttendanceReportViewTemplate() {
             const data = state.attendanceReportData;
@@ -2560,30 +2614,43 @@
 
             let stdHTML = data.students.map((std, index) => {
                 let p = 0, a = 0;
+                let hwD = 0, hwND = 0;
                 validDates.forEach(date => {
                     const attKey = `${std.id}_${data.batch}`;
                     const st = data.state[date]?.[attKey]?.status || data.state[date]?.[std.id]?.status;
                     if(st === 'Present') p++;
                     if(st === 'Absent') a++;
+                    
+                    const hSt = data.state[date]?.[attKey]?.hwStatus || data.state[date]?.[std.id]?.hwStatus;
+                    if(hSt === 'Done') hwD++;
+                    if(hSt === 'Not Done') hwND++;
                 });
+                
                 const totalWorkingDays = p + a;
                 const percentage = totalWorkingDays > 0 ? Math.round((p / totalWorkingDays) * 100) : 0;
+                
+                const totalHwDays = hwD + hwND;
+                const hwPercentage = totalHwDays > 0 ? Math.round((hwD / totalHwDays) * 100) : 0;
                 
                 return `
                 <tr class="border-b border-slate-200 text-xs md:text-sm">
                     <td class="p-2 md:p-3.5 border-r border-slate-300 text-center font-bold text-slate-500">${index + 1}</td>
                     <td class="p-2 md:p-3.5 border-r border-slate-300 font-mono font-bold text-slate-600">${std.id}</td>
                     <td class="p-2 md:p-3.5 border-r border-slate-300 font-extrabold text-slate-900">${std.name}</td>
-                    <td class="p-2 md:p-3.5 border-r border-slate-300 text-center font-bold text-slate-700">${totalWorkingDays}</td>
                     <td class="p-2 md:p-3.5 border-r border-slate-300 text-center font-extrabold text-green-600">${p}</td>
                     <td class="p-2 md:p-3.5 border-r border-slate-300 text-center font-bold text-red-500">${a}</td>
+                    <td class="p-2 md:p-3.5 border-r border-slate-300 text-center font-extrabold text-blue-600">${hwD}</td>
+                    <td class="p-2 md:p-3.5 border-r border-slate-300 text-center font-bold text-orange-500">${hwND}</td>
+                    <td class="p-2 md:p-3.5 border-r border-slate-300 text-center">
+                        <span class="px-2 md:px-3 py-1 rounded-full text-[10px] md:text-xs font-extrabold tracking-wide ${hwPercentage >= 75 ? 'bg-blue-100 text-blue-800' : 'bg-orange-100 text-orange-800'}">${hwPercentage}%</span>
+                    </td>
                     <td class="p-2 md:p-3.5 text-center">
                         <span class="px-2 md:px-3 py-1 rounded-full text-[10px] md:text-xs font-extrabold tracking-wide ${percentage >= 75 ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">${percentage}%</span>
                     </td>
                 </tr>`;
             }).join('');
 
-            if(data.students.length === 0) stdHTML = `<tr><td colspan="7" class="p-8 text-center text-slate-500 font-medium">No students to report for this month.</td></tr>`;
+            if(data.students.length === 0) stdHTML = `<tr><td colspan="9" class="p-8 text-center text-slate-500 font-medium">No students to report for this month.</td></tr>`;
 
             return `
             <div class="p-4 sm:p-8 max-w-5xl mx-auto bg-gray-50 min-h-[100dvh] print:p-0 print:bg-white animate-fade-in flex flex-col items-center">
@@ -2602,6 +2669,9 @@
                     </div>
 
                     <div class="flex space-x-3 w-full sm:w-auto justify-end">
+                        <button onclick="window.print()" class="w-full sm:w-auto px-6 py-2.5 bg-white text-slate-700 border border-slate-300 rounded-xl hover:bg-slate-50 font-bold flex items-center justify-center space-x-2 shadow-sm transition-colors">
+                            <i data-lucide="printer" class="w-4 h-4 text-slate-500"></i> <span>Print</span>
+                        </button>
                         <button id="pdf-download-btn" onclick="window.generatePremiumPDF()" class="w-full sm:w-auto px-6 py-2.5 bg-orange-500 text-white rounded-xl hover:bg-orange-600 font-bold flex items-center justify-center space-x-2 shadow-sm transition-colors">
                             <i data-lucide="download" class="w-4 h-4"></i> <span>Download PDF</span>
                         </button>
@@ -2645,10 +2715,12 @@
                                     <th class="p-2 md:p-3.5 border-r border-slate-300 text-center w-10 md:w-12">#</th>
                                     <th class="p-2 md:p-3.5 border-r border-slate-300">Student ID</th>
                                     <th class="p-2 md:p-3.5 border-r border-slate-300">Student Name</th>
-                                    <th class="p-2 md:p-3.5 border-r border-slate-300 text-center">Total Marked</th>
                                     <th class="p-2 md:p-3.5 border-r border-slate-300 text-center text-green-700">Present</th>
                                     <th class="p-2 md:p-3.5 border-r border-slate-300 text-center text-red-700">Absent</th>
-                                    <th class="p-2 md:p-3.5 text-center">Attendance %</th>
+                                    <th class="p-2 md:p-3.5 border-r border-slate-300 text-center text-blue-700">HW Done</th>
+                                    <th class="p-2 md:p-3.5 border-r border-slate-300 text-center text-orange-700">HW Pending</th>
+                                    <th class="p-2 md:p-3.5 border-r border-slate-300 text-center">HW %</th>
+                                    <th class="p-2 md:p-3.5 text-center">Att. %</th>
                                 </tr>
                             </thead>
                             <tbody>${stdHTML}</tbody>
@@ -2688,6 +2760,8 @@
             
             let presentCount = 0;
             let absentCount = 0;
+            let hwDoneCount = 0;
+            let hwNotDoneCount = 0;
             let rowsHTML = '';
             
             for(let i=1; i<=daysInMonth; i++) {
@@ -2700,6 +2774,9 @@
                 const status = statusObj?.status;
                 const reason = statusObj?.reason || '-';
                 
+                const hwStatus = statusObj?.hwStatus;
+                const hwReason = statusObj?.hwReason || '-';
+                
                 let statusBadge = '<span class="text-slate-400 font-medium">- Unmarked -</span>';
                 if (status === 'Present') {
                     presentCount++;
@@ -2711,18 +2788,35 @@
                     statusBadge = '<span class="text-slate-400 font-medium italic">Sunday</span>';
                 }
 
+                let hwBadge = '<span class="text-slate-300 font-medium">-</span>';
+                if (hwStatus === 'Done') {
+                    hwDoneCount++;
+                    hwBadge = '<span class="px-2 py-1 bg-blue-100 text-blue-700 font-bold rounded text-[9px] uppercase tracking-wide">Done</span>';
+                } else if (hwStatus === 'Not Done') {
+                    hwNotDoneCount++;
+                    hwBadge = '<span class="px-2 py-1 bg-orange-100 text-orange-700 font-bold rounded text-[9px] uppercase tracking-wide">Not Done</span>';
+                }
+                
+                let fullReason = reason !== '-' && reason !== '' ? reason : '';
+                if (hwStatus === 'Not Done' && hwReason !== '-' && hwReason !== '') {
+                    fullReason += (fullReason ? ' | HW: ' : 'HW: ') + hwReason;
+                }
+
                 rowsHTML += `
                 <tr class="border-b border-slate-200 text-xs md:text-sm ${isSunday ? 'bg-slate-100' : 'bg-white'}">
                     <td class="p-2 md:p-3 border-r border-slate-300 text-center font-bold text-slate-600">${i}</td>
-                    <td class="p-2 md:p-3 border-r border-slate-300 font-bold text-slate-800">${dateStr}</td>
                     <td class="p-2 md:p-3 border-r border-slate-300 font-medium text-slate-500">${dayName}</td>
                     <td class="p-2 md:p-3 border-r border-slate-300 text-center">${statusBadge}</td>
-                    <td class="p-2 md:p-3 text-slate-600 italic text-[10px] md:text-xs">${reason !== '-' && reason !== '' ? reason : ''}</td>
+                    <td class="p-2 md:p-3 border-r border-slate-300 text-center">${hwBadge}</td>
+                    <td class="p-2 md:p-3 text-slate-600 italic text-[10px] md:text-xs">${fullReason}</td>
                 </tr>`;
             }
             
             const totalMarked = presentCount + absentCount;
             const percentage = totalMarked > 0 ? Math.round((presentCount / totalMarked) * 100) : 0;
+            
+            const totalHwMarked = hwDoneCount + hwNotDoneCount;
+            const hwPercentage = totalHwMarked > 0 ? Math.round((hwDoneCount / totalHwMarked) * 100) : 0;
 
             return `
             <div class="p-4 sm:p-8 max-w-4xl mx-auto bg-gray-50 min-h-[100dvh] print:p-0 print:bg-white animate-fade-in flex flex-col items-center">
@@ -2741,6 +2835,9 @@
                     </div>
 
                     <div class="flex space-x-3 w-full sm:w-auto justify-end">
+                        <button onclick="window.print()" class="w-full sm:w-auto px-6 py-2.5 bg-white text-slate-700 border border-slate-300 rounded-xl hover:bg-slate-50 font-bold flex items-center justify-center space-x-2 shadow-sm transition-colors">
+                            <i data-lucide="printer" class="w-4 h-4 text-slate-500"></i> <span>Print</span>
+                        </button>
                         <button id="pdf-download-btn" onclick="window.generatePremiumPDF()" class="w-full sm:w-auto px-6 py-2.5 bg-[#1F5FBF] text-white rounded-xl hover:bg-blue-800 font-bold flex items-center justify-center space-x-2 shadow-sm transition-colors">
                             <i data-lucide="download" class="w-4 h-4"></i> <span>Download Sheet</span>
                         </button>
@@ -2773,22 +2870,30 @@
                             </div>
                         </div>
                         
-                        <div class="grid grid-cols-4 gap-4 mb-6">
+                        <div class="grid grid-cols-3 md:grid-cols-6 gap-3 mb-6">
                             <div class="bg-slate-50 border border-slate-200 p-3 rounded-xl text-center">
-                                <p class="text-[10px] font-bold text-slate-500 uppercase">Marked Days</p>
-                                <p class="text-xl font-black text-slate-800">${totalMarked}</p>
+                                <p class="text-[10px] font-bold text-slate-500 uppercase">Marked</p>
+                                <p class="text-lg md:text-xl font-black text-slate-800">${totalMarked}</p>
                             </div>
                             <div class="bg-green-50 border border-green-200 p-3 rounded-xl text-center">
                                 <p class="text-[10px] font-bold text-green-600 uppercase">Present</p>
-                                <p class="text-xl font-black text-green-700">${presentCount}</p>
+                                <p class="text-lg md:text-xl font-black text-green-700">${presentCount}</p>
                             </div>
                             <div class="bg-red-50 border border-red-200 p-3 rounded-xl text-center">
                                 <p class="text-[10px] font-bold text-red-600 uppercase">Absent</p>
-                                <p class="text-xl font-black text-red-700">${absentCount}</p>
+                                <p class="text-lg md:text-xl font-black text-red-700">${absentCount}</p>
+                            </div>
+                            <div class="bg-orange-50 border border-orange-200 p-3 rounded-xl text-center">
+                                <p class="text-[10px] font-bold text-orange-600 uppercase">Att. %</p>
+                                <p class="text-lg md:text-xl font-black ${percentage >= 75 ? 'text-green-600' : 'text-red-600'}">${percentage}%</p>
                             </div>
                             <div class="bg-blue-50 border border-blue-200 p-3 rounded-xl text-center">
-                                <p class="text-[10px] font-bold text-blue-600 uppercase">Attendance %</p>
-                                <p class="text-xl font-black ${percentage >= 75 ? 'text-green-600' : 'text-red-600'}">${percentage}%</p>
+                                <p class="text-[10px] font-bold text-blue-600 uppercase">HW Done</p>
+                                <p class="text-lg md:text-xl font-black text-blue-700">${hwDoneCount}</p>
+                            </div>
+                            <div class="bg-indigo-50 border border-indigo-200 p-3 rounded-xl text-center">
+                                <p class="text-[10px] font-bold text-indigo-600 uppercase">HW %</p>
+                                <p class="text-lg md:text-xl font-black ${hwPercentage >= 75 ? 'text-indigo-600' : 'text-orange-600'}">${hwPercentage}%</p>
                             </div>
                         </div>
                         
@@ -2796,10 +2901,10 @@
                             <thead>
                                 <tr class="bg-slate-100 border-b-2 border-slate-300 text-[10px] md:text-[11px] font-extrabold text-slate-800 uppercase tracking-wider">
                                     <th class="p-2 md:p-3 border-r border-slate-300 text-center w-10 md:w-12">Date</th>
-                                    <th class="p-2 md:p-3 border-r border-slate-300">Full Date</th>
                                     <th class="p-2 md:p-3 border-r border-slate-300">Day</th>
-                                    <th class="p-2 md:p-3 border-r border-slate-300 text-center">Status</th>
-                                    <th class="p-2 md:p-3">Reason / Remarks (If Absent)</th>
+                                    <th class="p-2 md:p-3 border-r border-slate-300 text-center">Attendance</th>
+                                    <th class="p-2 md:p-3 border-r border-slate-300 text-center">Homework</th>
+                                    <th class="p-2 md:p-3">Reason / Remarks</th>
                                 </tr>
                             </thead>
                             <tbody>${rowsHTML}</tbody>
@@ -2878,6 +2983,9 @@
                         </div>
                     </div>
                     <div class="flex space-x-3 w-full sm:w-auto justify-end">
+                        <button onclick="window.print()" class="w-full sm:w-auto px-6 py-2.5 bg-white text-slate-700 border border-slate-300 rounded-xl hover:bg-slate-50 font-bold flex items-center justify-center space-x-2 shadow-sm transition-colors">
+                            <i data-lucide="printer" class="w-4 h-4 text-slate-500"></i> <span>Print</span>
+                        </button>
                         <button id="pdf-download-btn" onclick="window.generatePremiumPDF()" class="w-full sm:w-auto px-6 py-2.5 bg-purple-600 text-white rounded-xl hover:bg-purple-700 font-bold flex items-center justify-center space-x-2 shadow-sm transition-colors">
                             <i data-lucide="download" class="w-4 h-4"></i> <span>Download PDF Report</span>
                         </button>
